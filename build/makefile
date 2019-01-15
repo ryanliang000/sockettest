@@ -3,44 +3,36 @@ all : ssl tcp udp copyTarget
 #curPath = ${shell pwd}
 curPath = ${shell dirname ${realpath ${lastword ${MAKEFILE_LIST}}}}
 CPPFLAGS +=  -I${curPath}/../include
+OBJS += $(notdir $(patsubst %.cpp, %.o, $(wildcard ../ssl/*.cpp)))
+OBJS += $(notdir $(patsubst %.cpp, %.o, $(wildcard ../tcp/*.cpp)))
+OBJS += $(notdir $(patsubst %.cpp, %.o, $(wildcard ../udp/*.cpp)))
+Target = $(patsubst %.o, %, $(OBJS))
+vpath %.h ../include 
+vpath %.cpp ../ssl ../tcp ../udp
 
-destDir = ../bin
+destDir = $(curPath)/../bin
 copyTarget: 
-	cp ../ssl/cli.py ${destDir}/sslcli.py
-	cp ../ssl/serv.py ${destDir}/sslserv.py
-	cp ../tcp/cli.py ${destDir}/tcpcli.py
-	cp ../tcp/serv.py ${destDir}/tcpserv.py
-	cp ../udp/cli.py ${destDir}/udpcli.py
-	cp ../udp/serv.py ${destDir}/udpserv.py
-	cp sslclient ${destDir}/
-	cp sslserver ${destDir}/
-	cp tcpclient ${destDir}/
-	cp tcpserver ${destDir}/
-	cp udpclient ${destDir}/
-	cp udpserver ${destDir}/
+	$(foreach f, ssl tcp udp, $(shell cp ../$(f)/cli.py $(destDir)/$(f)cli.py)) 
+	$(foreach f, ssl tcp udp, $(shell cp ../$(f)/serv.py $(destDir)/$(f)serv.py))
+	$(foreach n, ${Target}, ${shell cp ${n} ${destDir}})
 
 CC = gcc
 ssl : sslclient sslserver
 tcp : tcpclient tcpserver
 udp : udpclient udpserver
 
-vpath %.h ../include 
-vpath %.cpp ../ssl ../tcp ../udp
-
+LDLIBS += -lssl -lcrypto
 sslclient : sslclient.o
-	$(CC) -o $@ $< -lssl -lcrypto
 sslserver : sslserver.o
 	$(CC) -o $@ $< -lssl -lcrypto
+	@echo ${OBJS}
 tcpclient : tcpclient.o
 tcpserver : tcpserver.o
 udpclient : udpclient.o
 udpserver : udpserver.o
 
-*.o : myerr.h
+$(OBJS) : myerr.h
 
 .PHONY : clean
 clean :
-	-rm sslclient sslserver 
-	-rm tcpclient tcpserver
-	-rm udpclient udpserver
-	-rm *.o
+	-rm $(Target) $(OBJS) 
