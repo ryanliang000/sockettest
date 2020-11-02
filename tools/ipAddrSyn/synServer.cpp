@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +39,7 @@ int main(int argc, char **argv)
     }
     num=0;
     int recErrNum=0;
+    int forkid = -1;
     clilen = sizeof(cli);
     for (;;)
     {
@@ -51,41 +53,60 @@ int main(int argc, char **argv)
         }
         fprintf(stdout, "[accetp ok]\n");
         ++num;
+
+        // muti processes
+        forkid = fork();
+        if (forkid == 0)
+        {
+           // main process
+           close(clifd);
+           continue;
+        }
+        else if (forkid < 0)
+        {
+           fprintf(stdout, "error occur on fork");
+           continue;
+        }
+        close(sockfd);
+
+        // set time out 
         struct timeval tv;
         tv.tv_sec = 6;
         tv.tv_usec = 0;
         setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+        
+        // receive msg and send reply
         memset(&request, 0, sizeof(request));
         if ((n = recv(clifd, request, REQUEST, 0)) < 0)
         {
             fprintf(stdout, "[%d]recv error[%d] occur, ignored!\n", num, errno);
             close(clifd);
-            continue;
+            break;
         }
         fprintf(stdout, "[recv ok]\n");
         request[REQUEST-1]='\0';
         fprintf(stdout, "[%d]recv: %s\n", num, request);
         fprintf(stdout, "[%d]reply addr: %s:%d\n", num, inet_ntoa(cli.sin_addr), htons(cli.sin_port));
-		if (request[0] == 'u'){
-		   // update message
-		   local = cli;
+	if (request[0] == 'u'){
+	   // update message
+	   local = cli;
            sprintf(reply, "%s", inet_ntoa(local.sin_addr));
-		}
-		else if (request[0] == 'g')
-		{
-		   // get address message
+	}
+	else if (request[0] == 'g')
+	{
+	   // get address message
            sprintf(reply, "%s", inet_ntoa(local.sin_addr));
-		}
+	}
         else if (request[0] == 'G' && request[5] == 'i' && request[6] == 'p')
         {
            sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type:text/html\r\nConnection:close\r\n\r\n<h1>%s</h1>", inet_ntoa(local.sin_addr));
         }
-		else
-		{
-		   fprintf(stdout, "[%d]request not match any condition.\n", num, request);
+	else
+	{
+	   fprintf(stdout, "[%d]request not match any condition.\n", num, request);
            close(clifd);
-           continue;
-		}
+           break;
+	}
         reply[REPLY-1]='\0';
         fprintf(stdout, "[%d]send: %s\n", num, reply);
         if (send(clifd, reply, strlen(reply) + 1, 0) != strlen(reply) + 1)
@@ -95,6 +116,7 @@ int main(int argc, char **argv)
         fprintf(stdout, "[send ok]\n");
         shutdown(clifd, 2);
         close(clifd);
+        break;
     }
     
     return 0;
