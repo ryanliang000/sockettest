@@ -1,5 +1,7 @@
 #include <sys/socket.h>
 #include <sys/select.h>
+#include <sys/types.h>
+#include <sys/mman.h>
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +16,10 @@ int main(int argc, char **argv)
     char request[REQUEST], reply[REPLY];
     int sockfd, n, num, clifd;
     unsigned int clilen;
-    struct sockaddr_in local; 
+    
+    // share memory bettwen process
+    struct sockaddr_in *pLocal = (sockaddr_in*)mmap(0, sizeof(sockaddr_in), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    struct sockaddr_in &local = *pLocal;
 
     if (argc < 2)
     {
@@ -116,6 +121,7 @@ int main(int argc, char **argv)
         fprintf(stdout, "[send ok]\n");
         shutdown(clifd, 2);
         close(clifd);
+        munmap(pLocal, sizeof(sockaddr_in));
         break;
     }
     
