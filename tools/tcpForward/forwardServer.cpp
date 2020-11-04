@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
-#define BUFFER_LENGTH 1480
+#define BUFFER_LENGTH 1048576
 void showMsg(char *buffer, int len)
 {
     for (int i=0; i<len; i++)
@@ -94,23 +94,14 @@ int main(int argc, char **argv)
            continue;
         }
         close(srvfd);
-        //if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-        //{
-        //    fprintf(stdout, "socket return failed\n");
-        //    break;
-        //}
-        //if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
-        //{
-        //   fprintf(stdout, "connect to forward server failed\n");
-        //   break;
-        //}
         
         // set time out
         struct timeval tv;
-        tv.tv_sec = 15;
+        tv.tv_sec = 30;
         tv.tv_usec = 0;
-        setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-        setsockopt(fsrvfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));       
+		struct timeval clitv = tv, srvtv = tv;
+        setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&clitv, sizeof(tv));
+        setsockopt(fsrvfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&srvtv, sizeof(tv));       
  
         // wait for message
         fprintf(stdout, "clifd: %d, fsrvfd: %d\n", clifd, fsrvfd);
@@ -119,7 +110,8 @@ int main(int argc, char **argv)
         printf("maxfd=%d\n", maxfd);
         while(true)
         {
-            FD_ZERO(&fdset);
+            tv.tv_sec = clitv.tv_sec = srvtv.tv_sec = 30;
+			FD_ZERO(&fdset);
             FD_SET(clifd, &fdset);
             FD_SET(fsrvfd, &fdset);
             if ((rt=select(maxfd, &fdset, NULL, NULL, &tv)) == 0)
