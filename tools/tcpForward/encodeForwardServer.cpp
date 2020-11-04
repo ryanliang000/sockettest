@@ -2,12 +2,14 @@
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/wait.h>
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
-#define BUFFER_LENGTH 1480
+#define BUFFER_LENGTH 1048576
+#define TIME_OUT 30
 void showMsg(char *buffer, int len)
 {
     for (int i=0; i<len; i++)
@@ -16,7 +18,11 @@ void showMsg(char *buffer, int len)
     }
     fprintf(stdout, "\n");
 }
-
+void encodebuffer(unsigned char* buffer, int len, unsigned char key)
+{
+   for (int i=0; i<len; i++)
+      buffer[i] = buffer[i] ^ key;
+}
 int main(int argc, char **argv)
 {
     struct sockaddr_in serv, cli, fserv;
@@ -25,10 +31,10 @@ int main(int argc, char **argv)
     char buffer[BUFFER_LENGTH];
     fd_set fdset;
     FD_ZERO(&fdset);
-
-    if (argc < 4)
+    unsigned char key = 0;
+    if (argc < 5)
     {
-        err_quit( "Usage: %s forwardip forwardport servport\n", argv[0]);
+        err_quit( "Usage: %s forwardip forwardport servport encodekey\n", argv[0]);
     }
     if ((srvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
     {
@@ -42,6 +48,7 @@ int main(int argc, char **argv)
     fserv.sin_family = AF_INET;
     fserv.sin_addr.s_addr = inet_addr(argv[1]);
     fserv.sin_port = htons(atoi(argv[2]));
+    key = atoi(argv[4]);
     if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
     {
         err_sys("bind error");
@@ -54,6 +61,7 @@ int main(int argc, char **argv)
     int recErrNum=0;
     int forkid = -1;
     clilen = sizeof(cli);
+    signal(SIGCLD,SIG_IGN);
     for (;;)
     {
         fprintf(stdout, "wait for connection...\n");
@@ -107,10 +115,11 @@ int main(int argc, char **argv)
         
         // set time out
         struct timeval tv;
-        tv.tv_sec = 15;
+        tv.tv_sec = TIME_OUT;
         tv.tv_usec = 0;
-        setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-        setsockopt(fsrvfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));       
+        struct timeval clitv = tv, srvtv = tv;
+        setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&clitv, sizeof(tv));
+        setsockopt(fsrvfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&srvtv, sizeof(tv));       
  
         // wait for message
         fprintf(stdout, "clifd: %d, fsrvfd: %d\n", clifd, fsrvfd);
@@ -119,6 +128,7 @@ int main(int argc, char **argv)
         printf("maxfd=%d\n", maxfd);
         while(true)
         {
+            tv.tv_sec = clitv.tv_sec = srvtv.tv_sec = TIME_OUT;
             FD_ZERO(&fdset);
             FD_SET(clifd, &fdset);
             FD_SET(fsrvfd, &fdset);
@@ -148,6 +158,7 @@ int main(int argc, char **argv)
                   fprintf(stdout, "close by client\n");
                   break;
                }
+               encodebuffer((unsigned char*)buffer, n, key);
                if (send(fsrvfd, buffer, n, 0) != n)
                {
                    fprintf(stdout, "[%d]send error[%d] occur, ignored!\n", num, errno);
@@ -170,6 +181,7 @@ int main(int argc, char **argv)
                    fprintf(stdout, "close by forward server\n");
                    break;
                 }
+                encodebuffer((unsigned char*)buffer, n, key);
                 if (send(clifd, buffer, n, 0) != n)
                 {
                    fprintf(stdout, "[%d]send error[%d] occur, ignored!\n", num, errno);
