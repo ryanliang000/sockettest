@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
-#define BUFFER_LENGTH 1048576
+#define BUFFER_LENGTH 65536
 #define TIME_OUT 30
 void showMsg(char *buffer, int len)
 {
@@ -128,7 +128,6 @@ int main(int argc, char **argv)
                 fprintf(stdout, "select error occor\n");
                 break;
             }
-            memset(&buffer, 0, sizeof(buffer));
             n = 0;
             // receive message from client
             if (FD_ISSET(clifd, &fdset))
