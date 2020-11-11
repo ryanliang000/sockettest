@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
-#define BUFFER_LENGTH 1048576
+#define BUFFER_LENGTH 65536 
 #define TIME_OUT 15
 void showMsg(char *buffer, int len)
 {
@@ -113,22 +113,24 @@ int main(int argc, char **argv)
         }
         encodebuffer((unsigned char*)buffer,n,key);
         showMsg(buffer, n);
-        if (n == 3 && buffer[0] == 5 && buffer[1] == 1 && buffer[2] == 0){
-           encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
-           send(clifd, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
+        if (n == 3){
+          if (buffer[0] == 5 && buffer[1] == 1 && buffer[2] == 0){
+             encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
+             send(clifd, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
+          }
+          else{
+             fprintf(stdout, "receive request sock type not 0x050100\n");
+             close(clifd);
+             break;
+          }
+          if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 10){
+             fprintf(stdout, "receive start sock from client failed\n");
+             close(clifd);
+             break;
+          }
+          encodebuffer((unsigned char*)buffer,n,key);
+          showMsg(buffer, n);
         }
-        else{
-           fprintf(stdout, "receive request sock type not 0x050100\n");
-           close(clifd);
-           break;
-        }
-        if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 10){
-           fprintf(stdout, "receive start sock from client failed\n");
-           close(clifd);
-           break;
-        }
-        encodebuffer((unsigned char*)buffer,n,key);
-        showMsg(buffer, n);
         if (buffer[0] == 5 && buffer[1] == 1 && buffer[2] == 0){
            if (buffer[3] == 3){
               unsigned char bytes = buffer[4];
@@ -192,7 +194,6 @@ int main(int argc, char **argv)
                 fprintf(stdout, "select error occor\n");
                 break;
             }
-            memset(&buffer, 0, sizeof(buffer));
             n = 0;
             // receive message from client
             if (FD_ISSET(clifd, &fdset))
