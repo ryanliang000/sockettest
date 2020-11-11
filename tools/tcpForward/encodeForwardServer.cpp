@@ -8,14 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
-#define BUFFER_LENGTH 1048576
+#define BUFFER_LENGTH 65536
 #define TIME_OUT 30
 void showMsg(char *buffer, int len)
 {
     for (int i=0; i<len; i++)
-    {
        fprintf(stdout, "%02x ", (unsigned char)(buffer[i]));
-    }
     fprintf(stdout, "\n");
 }
 void encodebuffer(unsigned char* buffer, int len, unsigned char key)
@@ -27,10 +25,8 @@ int main(int argc, char **argv)
 {
     struct sockaddr_in serv, cli, fserv;
     int srvfd, n, num, clifd, fsrvfd;
-    unsigned int clilen;
     char buffer[BUFFER_LENGTH];
     fd_set fdset;
-    FD_ZERO(&fdset);
     unsigned char key = 0;
     if (argc < 5)
     {
@@ -60,8 +56,8 @@ int main(int argc, char **argv)
     num=0;
     int recErrNum=0;
     int forkid = -1;
-    clilen = sizeof(cli);
-    signal(SIGCLD,SIG_IGN);
+	unsigned int clilen = sizeof(cli);
+    signal(SIGCHLD,SIG_IGN);
     for (;;)
     {
         fprintf(stdout, "wait for connection...\n");
@@ -102,16 +98,6 @@ int main(int argc, char **argv)
            continue;
         }
         close(srvfd);
-        //if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-        //{
-        //    fprintf(stdout, "socket return failed\n");
-        //    break;
-        //}
-        //if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
-        //{
-        //   fprintf(stdout, "connect to forward server failed\n");
-        //   break;
-        //}
         
         // set time out
         struct timeval tv;
@@ -142,17 +128,16 @@ int main(int argc, char **argv)
                 fprintf(stdout, "select error occor\n");
                 break;
             }
-            memset(&buffer, 0, sizeof(buffer));
             n = 0;
             // receive message from client
             if (FD_ISSET(clifd, &fdset))
             {
-               fprintf(stdout, "receive message from client: %d\n", clifd);
                if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 0)
                {
                   fprintf(stdout, "[%d]recv error[%d] occur, ignored!\n", num, errno);
                   break;
                }
+			   fprintf(stdout, "recv from client:%d, length:%d\n", clifd,n);
                if (n == 0)
                {
                   fprintf(stdout, "close by client\n");
@@ -170,12 +155,12 @@ int main(int argc, char **argv)
             // receive message from forward server
             if (FD_ISSET(fsrvfd, &fdset))
             {
-                fprintf(stdout, "receive message from forward server:%d\n", fsrvfd);
                 if ((n = recv(fsrvfd, buffer, BUFFER_LENGTH, 0)) < 0)
                 {
                    fprintf(stdout, "[%d]recv error[%d] occur, ignored!\n", num, errno);
                    break;
                 }
+				fprintf(stdout, "recv from fserv:%d, length:%d\n", fsrvfd,n);
                 if (n == 0)
                 {
                    fprintf(stdout, "close by forward server\n");
