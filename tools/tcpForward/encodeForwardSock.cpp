@@ -47,7 +47,10 @@ int main(int argc, char **argv)
     fserv.sin_addr.s_addr = inet_addr(argv[1]);
     fserv.sin_port = htons(atoi(argv[2]));
     key = atoi(argv[4]);
-    if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
+    int opt=1;
+    setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	setsockopt(srvfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+	if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
     {
         err_sys("bind error");
     }
