@@ -186,7 +186,7 @@ int main(int argc, char **argv)
                     epoll_ctl(epfd, EPOLL_CTL_DEL, curr.data.fd, NULL);
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fdmap[curr.data.fd], NULL);
 					close(curr.data.fd);
-					close(fmap[curr.data.fd]);
+					close(fdmap[curr.data.fd]);
                 }
             }
         }
