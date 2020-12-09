@@ -11,7 +11,7 @@
 #include "myerr.h"
 #define BUFFER_LENGTH 65536 
 #define TIME_OUT 15
-void showMsg(char *buffer, int len)
+void showmsg(char *buffer, int len)
 {
     int nShowLen = len > 24 ? 24 : len;
     for (int i=0; i<nShowLen; i++)
@@ -64,6 +64,9 @@ int main(int argc, char **argv)
     memset(&fserv, 0, sizeof(fserv));
     fserv.sin_family = AF_INET;
     key = atoi(argv[2]);
+    int opt=1;
+    setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(srvfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
     if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
     {
         err_sys("bind error");
@@ -112,9 +115,9 @@ int main(int argc, char **argv)
            break;
         }
         encodebuffer((unsigned char*)buffer,n,key);
-        showMsg(buffer, n);
-        if (n == 3){
-          if (buffer[0] == 5 && buffer[1] == 1 && buffer[2] == 0){
+        showmsg(buffer, n);
+        if (n < 10){
+          if (buffer[0] == 5 && ((buffer[1] == 1 && buffer[2] == 0) || buffer[1] == n - 2)){
              encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
              send(clifd, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
           }
@@ -129,7 +132,7 @@ int main(int argc, char **argv)
              break;
           }
           encodebuffer((unsigned char*)buffer,n,key);
-          showMsg(buffer, n);
+          showmsg(buffer, n);
         }
         if (buffer[0] == 5 && buffer[1] == 1 && buffer[2] == 0){
            if (buffer[3] == 3){
@@ -139,7 +142,7 @@ int main(int argc, char **argv)
            }
            else if (buffer[3] == 1){
               memcpy(&fserv.sin_addr.s_addr, buffer+4, 4);
-              memcpy(&fserv.sin_port, buffer+6, 2); 
+              memcpy(&fserv.sin_port, buffer+8, 2); 
            }
         }
         else{
@@ -203,13 +206,13 @@ int main(int argc, char **argv)
                   fprintf(stdout, "[%d]recv error[%d] occur, ignored!\n", num, errno);
                   break;
                }
-			   fprintf(stdout, "recv from client: %d, length:%d\n", clifd, n);
+			   fprintf(stdout, "recv from cli: %d, len:%d\n", clifd, n);
                if (n == 0)
                {
                   fprintf(stdout, "close by client\n");
                   break;
                }
-               //showMsg(buffer, n);
+               //showmsg(buffer, n);
                encodebuffer((unsigned char*)buffer, n, key);
                if (send(fsrvfd, buffer, n, 0) != n)
                {
@@ -226,7 +229,7 @@ int main(int argc, char **argv)
                    fprintf(stdout, "[%d]recv error[%d] occur, ignored!\n", num, errno);
                    break;
                 }
-                fprintf(stdout, "recv from fserver:%d, length:%d\n", fsrvfd, n);
+                fprintf(stdout, "recv from fsrv:%d, len:%d\n", fsrvfd, n);
 				if (n == 0)
                 {
                    fprintf(stdout, "close by forward server\n");
@@ -238,7 +241,7 @@ int main(int argc, char **argv)
                    fprintf(stdout, "[%d]send error[%d] occur, ignored!\n", num, errno);
                    break;
                 }
-                //showMsg(buffer, n);
+                //showmsg(buffer, n);
             } 
         }
         close(clifd);
