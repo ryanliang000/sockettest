@@ -64,7 +64,7 @@ int proc_recv(int curr, int remote, int key)
     fprintf(stdout, "proc recv param: %d,%d,%d\n", curr, remote, key);
     if ((n = recv(curr, buffer, BUFFER_LENGTH, 0)) < 0)
     {
-        fprintf(stdout, "recv error[%d] occur, ignored!\n", errno);
+        fprintf(stdout, "---recv error[%d] occur, ignored!\n", errno);
         return -1;
     }
     fprintf(stdout, "recv from sock:%d, length:%d\n", curr, n);
@@ -73,16 +73,22 @@ int proc_recv(int curr, int remote, int key)
        fprintf(stdout, "close by client\n");
        return 1;
     }
-    showmsg(buffer, n>20?20:n);
+    //showmsg(buffer, n>20?20:n);
     encodebuffer((unsigned char*)buffer, n, key);
+
     if (send(remote, buffer, n, 0) != n)
     {
-       fprintf(stdout, "send error[%d] occur, ignored!\n", errno);
+       fprintf(stdout, "---send error[%d] occur, ignored!\n", errno);
        return -1;
     }
     return 0;
 }
 
+void setnonblock(int fd)
+{
+	int flag = fcntl(fd, F_GETFL);
+	fcntl(fd, F_SETFL, flag | O_NONBLOCK);
+}
 int main(int argc, char **argv)
 {
     struct sockaddr_in serv;
@@ -140,6 +146,9 @@ int main(int argc, char **argv)
     int proc_result = 0;
     int client = -1;
     int remote = -1;
+	struct timeval tv;
+	tv.tv_sec = TIME_OUT_SEND;
+	tv.tv_usec = 0;
     for (;;){
         nfds = epoll_wait(epfd, events, MAX_EVENT, TIME_OUT);
         if (nfds == -1){
@@ -154,14 +163,11 @@ int main(int argc, char **argv)
                 fprintf(stdout, "process accetp: %d\n", srvfd);
                 proc_result = proc_accept(srvfd, client, remote);
                 if (proc_result == 0){
-                    struct timeval tv;
-                    tv.tv_sec = TIME_OUT;
-                    tv.tv_usec = 0;
-                    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-                    setsockopt(remote, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));                    
                     evpool[client].data.fd = client;
                     fdmap[client] = remote;
                     fdmap[remote] = client;
+					setsockopt(client, SOL_CLIENT, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+					setsockopt(remote, SOL_CLIENT, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
                     evpool[client].events = EPOLLIN;
                     epoll_ctl(epfd, EPOLL_CTL_ADD, client, &evpool[client]);
                     evpool[remote].data.fd = remote;
@@ -179,6 +185,8 @@ int main(int argc, char **argv)
                 if (proc_result != 0){
                     epoll_ctl(epfd, EPOLL_CTL_DEL, curr.data.fd, NULL);
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fdmap[curr.data.fd], NULL);
+					close(curr.data.fd);
+					close(fmap[curr.data.fd]);
                 }
             }
         }
