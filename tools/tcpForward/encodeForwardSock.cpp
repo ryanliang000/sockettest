@@ -126,8 +126,8 @@ int main(int argc, char **argv)
         tv.tv_sec = TIME_OUT;
         tv.tv_usec = 0;
         struct timeval clitv = tv, srvtv = tv;
-        setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&clitv, sizeof(tv));
-        setsockopt(fsrvfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&srvtv, sizeof(tv));       
+        setsockopt(clifd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&clitv, sizeof(tv));
+        setsockopt(fsrvfd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&srvtv, sizeof(tv));       
  
         // wait for message
         fprintf(stdout, "clifd: %d, fsrvfd: %d\n", clifd, fsrvfd);
