@@ -10,9 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
-#define BUFFER_LENGTH 1480
+#define BUFFER_LENGTH 65536
 #define TIME_OUT 60
-#define TIME_OUT_MSG 15
+#define TIME_OUT_MSG 30
 #define MAX_EVENT 256
 
 struct sockaddr_in  cli, fserv;
@@ -35,10 +35,10 @@ bool getsockaddrfromhost(char* buffer, unsigned char bytes, sockaddr_in& serv)
    char hostname[256];
    memcpy(hostname, buffer, bytes);
    hostname[bytes] = '\0';
-   printf("hostname: %s\n", hostname);
+   //printf("hostname: %s\n", hostname);
    if ((host = gethostbyname(hostname)) == NULL) return false;
    memcpy(&serv.sin_addr.s_addr, host->h_addr, 4);
-   printf("host address: %x\n", serv.sin_addr.s_addr);
+   //printf("host address: %x\n", serv.sin_addr.s_addr);
    return true;
 }
 
@@ -84,7 +84,7 @@ int proc_accept(int srvfd, int& clifd, int& remote, int key)
 	   return -1;
     }
     encodebuffer((unsigned char*)buffer,n,key);
-    showmsg(buffer, n<20?n:20);
+    //showmsg(buffer, n<20?n:20);
     if (n < 10)
 	{// first version check msg
 	   if (buffer[0] == 5 && ((buffer[1] == 1 && buffer[2] == 0) || buffer[1] == n - 2)){
@@ -102,7 +102,7 @@ int proc_accept(int srvfd, int& clifd, int& remote, int key)
           return -1;
        }
        encodebuffer((unsigned char*)buffer,n,key);
-       showmsg(buffer, n<20?n:20);
+       //showmsg(buffer, n<20?n:20);
 	}
     if (buffer[0] == 5 && buffer[1] == 1 && buffer[2] == 0)
 	{// second remote address send msg
@@ -144,20 +144,20 @@ int proc_accept(int srvfd, int& clifd, int& remote, int key)
        fprintf(stdout, "send second msg to client failed\n");
        return -1;
     }
-
+    settimeout(remote, TIME_OUT_MSG);
     fprintf(stdout, "connection [%d-%d] established.\n", clifd, remote); 
     return 0;
 }
 int proc_recv(int curr, int remote, int key)
 {
     int n = 0;
-    fprintf(stdout, "proc recv param: %d,%d,%d\n", curr, remote, key);
+    // fprintf(stdout, "proc recv param: %d,%d,%d\n", curr, remote, key);
     if ((n = recv(curr, buffer, BUFFER_LENGTH, 0)) < 0)
     {
         fprintf(stdout, "---recv error[%d] occur, ignored!\n", errno);
         return -1;
     }
-    fprintf(stdout, "recv from sock:%d, length:%d\n", curr, n);
+    fprintf(stdout, "recv from sock:%d to %d, length:%d\n", curr, remote, n);
     if (n == 0)
     {
        fprintf(stdout, "close by client\n");
@@ -242,16 +242,14 @@ int main(int argc, char **argv)
         }
         for (int i=0; i<nfds; i++){
             struct epoll_event curr = events[i];
-            fprintf(stdout, "epoll event %d, fd: %d, events: %d\n", i, curr.data.fd, curr.events);
+            // fprintf(stdout, "epoll event %d, fd: %d, events: %d\n", i, curr.data.fd, curr.events);
             if (curr.data.fd == srvfd){
-                fprintf(stdout, "process accetp: %d\n", srvfd);
+                // fprintf(stdout, "process accetp: %d\n", srvfd);
                 proc_result = proc_accept(srvfd, client, remote, key);
                 if (proc_result == 0){
                     evpool[client].data.fd = client;
                     fdmap[client] = remote;
                     fdmap[remote] = client;
-					settimeout(client, TIME_OUT_MSG, SO_SNDTIMEO);
-					settimeout(remote, TIME_OUT_MSG, SO_SNDTIMEO);
                     evpool[client].events = EPOLLIN;
                     epoll_ctl(epfd, EPOLL_CTL_ADD, client, &evpool[client]);
                     evpool[remote].data.fd = remote;
@@ -264,7 +262,7 @@ int main(int argc, char **argv)
             }
             else
             {
-                fprintf(stdout, "process recv: %d\n", curr.data.fd);
+                //fprintf(stdout, "process recv: %d\n", curr.data.fd);
                 proc_result = proc_recv(curr.data.fd, fdmap[curr.data.fd], key); 
                 if (proc_result != 0){
                     epoll_ctl(epfd, EPOLL_CTL_DEL, curr.data.fd, NULL);
