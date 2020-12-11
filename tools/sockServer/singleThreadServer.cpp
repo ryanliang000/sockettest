@@ -36,7 +36,7 @@ bool getsockaddrfromhost(char* buffer, unsigned char bytes, sockaddr_in& serv)
    char hostname[256];
    memcpy(hostname, buffer, bytes);
    hostname[bytes] = '\0';
-   //printf("hostname: %s\n", hostname);
+   printf("hostname: %s\n", hostname);
    if ((host = gethostbyname(hostname)) == NULL) return false;
    memcpy(&serv.sin_addr.s_addr, host->h_addr, 4);
    //printf("host address: %x\n", serv.sin_addr.s_addr);
@@ -80,6 +80,7 @@ sockinfo sockinfos[2048];
 int n = 0;
 char acceptSockBuffer[2] = {5, 0};
 char startSockBuffer[10] = {5, 0, 0, 1, 0, 0, 0, 0, 0, 0};
+int proc_recv_sock1_with_buffer(int clifd, int& remote, int key);
 int proc_recv_sock0(int clifd, int &remote, int key)
 {// recv 5,1,0 or 5,2,1,0 reply 5,0
     //sock protocl identify
@@ -92,7 +93,6 @@ int proc_recv_sock0(int clifd, int &remote, int key)
 	//showmsg(buffer, n<20?n:20);
     if (n < 10){// first version check msg
        if (buffer[0] == 5 && ((buffer[1] == 1 && buffer[2] == 0) || buffer[1] == n - 2)){
-          encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
           send(clifd, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
        }
        else{
@@ -102,7 +102,8 @@ int proc_recv_sock0(int clifd, int &remote, int key)
        }
     }
 	else{
-		return proc_recv_sock1_with_buffer(clifd, remote, key);
+		fprintf(stdout, "recv sock0-sock1 bind msg\n");
+        return proc_recv_sock1_with_buffer(clifd, remote, key);
 	}
 	sockinfos[clifd].state = 1;
 	return 0;
@@ -110,7 +111,7 @@ int proc_recv_sock0(int clifd, int &remote, int key)
 int proc_recv_sock1(int clifd, int& remote, int key)
 {// recv 5,1..host,port reply 5,0,0,1,ip,port
 	if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 10){
-        fprintf(stdout, "receive start sock from client failed\n");
+        fprintf(stdout, "receive start sock from client failed, len:%d\n", n);
         close(clifd);
         return -1;
     }
@@ -146,12 +147,13 @@ int proc_recv_sock1_with_buffer(int clifd, int& remote, int key)
        return -1;
     }
 	setnonblock(remote);
-    if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0){
-       close(clifd);
-       close(remote);
-       fprintf(stdout, "connect to forward address failed\n");
-       return -1;
-    }
+    connect(remote, (sockaddr*)(&fserv), sizeof(fserv));
+    //if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0){
+    //   close(clifd);
+    //   close(remote);
+    //   fprintf(stdout, "connect to forward address failed\n");
+    //   return -1;
+    //}
 
 	// send reply to client
 	encodebuffer((unsigned char*)startSockBuffer, sizeof(startSockBuffer), key);
@@ -175,6 +177,8 @@ int proc_recv_sock3(int fd, int key)
 	settimeout(fd, TIME_OUT_MSG);
 	sockinfos[fd].state = 9;
 	sockinfos[sockinfos[fd].dstfd].state = 9;
+    fprintf(stdout, "connection [%d-%d] established.\n", fd, sockinfos[fd].dstfd);
+    return 0;
 }
 
 // 0-Succ
@@ -188,12 +192,13 @@ int proc_accept(int srvfd, int& clifd, int key)
     }
 	sockinfos[clifd] = sockinfo(clifd, 0);
 	settimeout(clifd, TIME_OUT_MSG);
-    fprintf(stdout, "connection [%d-%d] established.\n", clifd, remote); 
+    fprintf(stdout, "recv conn %d.\n", clifd); 
     return 0;
 }
-int proc_recv(int fd, int dstfd, int key)
+int proc_recv(int fd, int key)
 {
     int n = 0;
+    int dstfd = sockinfos[fd].dstfd;
     // fprintf(stdout, "proc recv param: %d,%d,%d\n", curr, remote, key);
     if ((n = recv(fd, buffer, BUFFER_LENGTH, 0)) < 0)
     {
@@ -249,6 +254,9 @@ int main(int argc, char **argv)
     {
         err_sys("listen error");
     }
+    sockinfos[srvfd] = sockinfo(srvfd, 9);
+    encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
+
     fprintf(stdout, "start listen ... \n");
     int forkid = -1;
     unsigned int clilen = sizeof(cli);
@@ -281,7 +289,8 @@ int main(int argc, char **argv)
         for (int i=0; i<nfds; i++){
             struct epoll_event curr = events[i];
 			int currfd = curr.data.fd;
-            // fprintf(stdout, "epoll event %d, fd: %d, events: %d\n", i, curr.data.fd, curr.events);
+            int state = sockinfos[currfd].state;
+            fprintf(stdout, "epoll event %d, fd: %d, events: %d, state:%d\n", i, curr.data.fd, curr.events, state);
             if (curr.data.fd == srvfd){
                 // fprintf(stdout, "process accetp: %d\n", srvfd);
                 proc_result = proc_accept(srvfd, client, key);
@@ -296,22 +305,28 @@ int main(int argc, char **argv)
             }
             else
             {
-                int state = sockinfos[currfd].state;
 				remote = -1;
+                proc_result = -1;
 				if (sockinfos[currfd].fd == -1) 
 					continue;
 				if (state == 0)
 					proc_result = proc_recv_sock0(currfd, remote, key);
 				else if (state == 1)
 					proc_result = proc_recv_sock1(currfd, remote, key);
-                else if (state == 3)
-				    proc_result = proc_recv_sock3(currfd, key); 
+                else if (state == 3){
+				    proc_result = proc_recv_sock3(currfd, key);
+                    evpool[currfd].events = EPOLLIN;
+                    epoll_ctl(epfd, EPOLL_CTL_MOD, currfd, &evpool[currfd]);
+                }
 				else if (state == 9)
 				    proc_result = proc_recv(currfd, key);
+                else
+                    proc_result = 0;
+
                 if (proc_result == 0){
 				    if (remote != -1){
 						evpool[remote].data.fd = remote;
-                    	evpool[remote].events = EPOLLIN;
+                    	evpool[remote].events = EPOLLOUT|EPOLLERR;
                     	epoll_ctl(epfd, EPOLL_CTL_ADD, remote, &evpool[remote]);	
 					}
 				}
@@ -323,7 +338,7 @@ int main(int argc, char **argv)
                     if (remote != -1){
                     	epoll_ctl(epfd, EPOLL_CTL_DEL, remote, NULL);
 						close(remote);
-						sockinfos[remote] = -1;
+						sockinfos[remote].fd = -1;
 					}
                 }
 
