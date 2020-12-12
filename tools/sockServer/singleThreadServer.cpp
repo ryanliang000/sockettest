@@ -70,15 +70,17 @@ struct buffinfo{
 	int recvn;
 	int sendn;
 	buffinfo():recvn(0),sendn(0){}
+	void reset(){recvn=0;sendn=0;}
 };
 struct sockinfo{
    int fd;
    int dstfd;
    int state;
    buffinfo tbuf;
-   sockinfo():fd(-1),dstfd(-1),state(-1){}
-   sockinfo(int _fd, int _state):fd(_fd),state(_state),dstfd(-1){}
-   sockinfo(int _fd, int _dstfd, int _state):fd(_fd),dstfd(_dstfd),state(_state){}
+   sockinfo()fd(-1),dstfd(-1),state(-1){}
+   void reset(){fd=-1,dstfd=-1,state=-1;}
+   void reset(int _fd, int _state){fd=_fd,state=_state,dstfd=-1}
+   void reset(int _fd, int _dstfd, int _state){fd=_fd,dstfd=_dstfd,state=_state}
 };
 sockinfo sockinfos[2048];
 
@@ -172,8 +174,8 @@ int proc_recv_sock1_with_buffer(int clifd, int& remote, int key)
        LOG_E("send second msg to client failed");
        return -1;
     }
-	sockinfos[clifd] = sockinfo(clifd, remote, 2);
-    sockinfos[remote] = sockinfo(remote, clifd, 3);
+	sockinfos[clifd].reset(clifd, remote, 2);
+    sockinfos[remote].reset(remote, clifd, 3);
     return 0;
 }
 int proc_recv_sock2(int fd, int key)
@@ -199,7 +201,7 @@ int proc_accept(int srvfd, int& clifd, int key)
         LOG_E("accept error[%d], ignored!", errno);
         return -1;
     }
-	sockinfos[clifd] = sockinfo(clifd, 0);
+	sockinfos[clifd].reset(clifd, 0);
 	settimeout(clifd, TIME_OUT_MSG);
     LOG_I("recv conn %d.", clifd); 
     return 0;
@@ -263,7 +265,7 @@ int main(int argc, char **argv)
     {
         err_sys("listen error");
     }
-    sockinfos[srvfd] = sockinfo(srvfd, 9);
+    sockinfos[srvfd].reset(srvfd, 9);
     encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
 
     LOG_R("start listen ... ");
