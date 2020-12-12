@@ -70,7 +70,7 @@ int main(int argc, char **argv)
         if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0)
         {
             fprintf(stdout, "[num=%d]accept error[%d] occur, ignored!\n", num,  errno);
-            sleep(3);
+            sleep(1);
             continue;
         }
         fprintf(stdout, "[accetp connect %d]\n", clifd);
