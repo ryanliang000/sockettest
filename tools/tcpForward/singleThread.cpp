@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
+#include "log.h"
 #define BUFFER_LENGTH 65536
 #define TIME_OUT 30
 #define TIME_OUT_MSG 15
@@ -18,11 +19,11 @@
 struct sockaddr_in  cli, fserv;
 unsigned int clilen = sizeof(cli);
 char buffer[BUFFER_LENGTH];
+
 void showmsg(char *buffer, int len)
 {
     for (int i=0; i<len; i++)
-       fprintf(stdout, "%02x ", (unsigned char)(buffer[i]));
-    fprintf(stdout, "\n");
+       LOG_I("%02x ", (unsigned char)(buffer[i]));
 }
 void encodebuffer(unsigned char* buffer, int len, unsigned char key)
 {
@@ -61,12 +62,12 @@ int proc_accept(int srvfd, int& clifd, int& remote)
 {
     if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0)
     {
-        fprintf(stdout, "accept error[%d], ignored!\n", errno);
+        LOG_E("accept error[%d], ignored!", errno);
         return -1;
     }
     if ((remote = socket(PF_INET, SOCK_STREAM, 0)) < 0)
     {
-       fprintf(stdout, "forward socket return failed\n");
+       LOG_E("forward socket return failed");
        close(clifd);
        return -1;
     }
@@ -74,25 +75,25 @@ int proc_accept(int srvfd, int& clifd, int& remote)
     {
        close(clifd);
        close(remote);
-       fprintf(stdout, "connect to forward server failed\n");
+       LOG_R("connect to forward server failed");
        return -1;
     } 
-    fprintf(stdout, "connection [%d-%d] established.\n", clifd, remote); 
+    LOG_I("connection [%d-%d] established", clifd, remote); 
     return 0;
 }
 int proc_recv(int curr, int remote, int key)
 {
     int n = 0;
-    fprintf(stdout, "proc recv param: %d,%d,%d\n", curr, remote, key);
+    LOG_I("proc recv param: %d,%d,%d", curr, remote, key);
     if ((n = recv(curr, buffer, BUFFER_LENGTH, 0)) < 0)
     {
-        fprintf(stdout, "---recv error[%d] occur, ignored!\n", errno);
+        LOG_E("---recv error[%d] occur, ignored!", errno);
         return -1;
     }
-    fprintf(stdout, "recv from sock:%d, length:%d\n", curr, n);
+    LOG_I("recv from sock:%d, length:%d", curr, n);
     if (n == 0)
     {
-       fprintf(stdout, "close by client\n");
+       LOG_R("close by client");
        return 1;
     }
     //showmsg(buffer, n>20?20:n);
@@ -100,7 +101,7 @@ int proc_recv(int curr, int remote, int key)
 
     if (send(remote, buffer, n, 0) != n)
     {
-       fprintf(stdout, "---send error[%d] occur, ignored!\n", errno);
+       LOG_E("---send error[%d] occur, ignored!", errno);
        return -1;
     }
     return 0;
@@ -146,7 +147,7 @@ int main(int argc, char **argv)
     {
         err_sys("listen error");
     }
-    fprintf(stdout, "start listen ... \n");
+    LOG_R("start listen ... ");
     int forkid = -1;
     unsigned int clilen = sizeof(cli);
     signal(SIGCHLD,SIG_IGN);
@@ -174,15 +175,15 @@ int main(int argc, char **argv)
     for (;;){
         nfds = epoll_wait(epfd, events, MAX_EVENT, TIME_OUT);
         if (nfds == -1){
-            fprintf(stdout, "epoll wait error[%d], ignored!\n", errno);
+            LOG_E("epoll wait error[%d], ignored!", errno);
             sleep(1);
             continue;
         }
         for (int i=0; i<nfds; i++){
             struct epoll_event curr = events[i];
-            fprintf(stdout, "epoll event %d, fd: %d, events: %d\n", i, curr.data.fd, curr.events);
+            LOG_I("epoll event %d, fd: %d, events: %d", i, curr.data.fd, curr.events);
             if (curr.data.fd == srvfd){
-                fprintf(stdout, "process accetp: %d\n", srvfd);
+                LOG_I("process accetp: %d", srvfd);
                 proc_result = proc_accept(srvfd, client, remote);
                 if (proc_result == 0){
                     evpool[client].data.fd = client;
@@ -197,12 +198,12 @@ int main(int argc, char **argv)
                     epoll_ctl(epfd, EPOLL_CTL_ADD, remote, &evpool[remote]);
                 }
                 else {
-                    fprintf(stdout, "accept return abnormal: %d\n", proc_result);
+                    LOG_E("accept return abnormal: %d", proc_result);
                 }
             }
             else
             {
-                fprintf(stdout, "process recv: %d\n", curr.data.fd);
+                LOG_I("process recv: %d", curr.data.fd);
                 proc_result = proc_recv(curr.data.fd, fdmap[curr.data.fd], key); 
                 if (proc_result != 0){
                     epoll_ctl(epfd, EPOLL_CTL_DEL, curr.data.fd, NULL);

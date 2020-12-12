@@ -9,7 +9,7 @@
 #include <string.h>
 #include "myerr.h"
 #define BUFFER_LENGTH 65536
-#define TIME_OUT 30
+#define TIME_OUT 60
 void showMsg(char *buffer, int len)
 {
     for (int i=0; i<len; i++)
@@ -66,43 +66,42 @@ int main(int argc, char **argv)
     for (;;)
     {
         fprintf(stdout, "wait for connection...\n");
+		num++;
         if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0)
         {
-            recErrNum++;
-            fprintf(stdout, "[%d-%d]accept error[%d] occur, ignored!\n", num+1, recErrNum, errno);
-            sleep(1);
+            fprintf(stdout, "[num=%d]accept error[%d] occur, ignored!\n", num,  errno);
+            sleep(3);
             continue;
         }
         fprintf(stdout, "[accetp connect %d]\n", clifd);
-        ++num;
         
-        if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+        // muti processes
+        forkid = fork();
+        if (forkid == 0)
+        {   
+           // main process
+           close(clifd);
+           continue;
+        }   
+        else if (forkid < 0)
+        {   
+           fprintf(stdout, "error occur on fork");
+           continue;
+        }   
+		close(srvfd);
+		
+		if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
         {
            fprintf(stdout, "forward socket return failed\n");
            close(clifd);
            continue;
         } 
-        if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
+		if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
         {
            close(clifd);
            fprintf(stdout, "connect to forward server failed\n");
            continue;
         }
-        // muti processes
-        forkid = fork();
-        if (forkid == 0)
-        {
-           // main process
-           close(clifd);
-           close(fsrvfd);
-           continue;
-        }
-        else if (forkid < 0)
-        {
-           fprintf(stdout, "error occur on fork");
-           continue;
-        }
-        close(srvfd);
         
         // identify sock message
         if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 3){
@@ -133,7 +132,7 @@ int main(int argc, char **argv)
         fprintf(stdout, "clifd: %d, fsrvfd: %d\n", clifd, fsrvfd);
         int rt = 0;
         int maxfd = clifd > fsrvfd ? clifd+1 : fsrvfd+1;
-        printf("maxfd=%d\n", maxfd);
+        //printf("maxfd=%d\n", maxfd);
         while(true)
         {
             tv.tv_sec = clitv.tv_sec = srvtv.tv_sec = TIME_OUT;
@@ -156,7 +155,7 @@ int main(int argc, char **argv)
             {
                if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 0)
                {
-                  fprintf(stdout, "[%d]recv error[%d] occur, ignored!\n", num, errno);
+                  fprintf(stdout, "[n=%d]recv from client error[%d] occur, ignored!\n", n, errno);
                   break;
                }
 			   fprintf(stdout, "recv from client:%d, length:%d\n", clifd,n);
@@ -168,7 +167,7 @@ int main(int argc, char **argv)
                encodebuffer((unsigned char*)buffer, n, key);
                if (send(fsrvfd, buffer, n, 0) != n)
                {
-                   fprintf(stdout, "[%d]send error[%d] occur, ignored!\n", num, errno);
+                   fprintf(stdout, "[n=%d]send to remote error[%d] occur, ignored!\n", num, errno);
                    break;
                }
                //showMsg(buffer, n);
@@ -179,19 +178,19 @@ int main(int argc, char **argv)
             {
                 if ((n = recv(fsrvfd, buffer, BUFFER_LENGTH, 0)) < 0)
                 {
-                   fprintf(stdout, "[%d]recv error[%d] occur, ignored!\n", num, errno);
+                   fprintf(stdout, "[n=%d]recv from remote error[%d] occur, ignored!\n", n, errno);
                    break;
                 }
-				fprintf(stdout, "recv from fserv:%d, length:%d\n", fsrvfd,n);
+				fprintf(stdout, "recv from remote:%d, length:%d\n", fsrvfd,n);
                 if (n == 0)
                 {
-                   fprintf(stdout, "close by forward server\n");
+                   fprintf(stdout, "close by remote\n");
                    break;
                 }
                 encodebuffer((unsigned char*)buffer, n, key);
                 if (send(clifd, buffer, n, 0) != n)
                 {
-                   fprintf(stdout, "[%d]send error[%d] occur, ignored!\n", num, errno);
+                   fprintf(stdout, "[n=%d]send to client error[%d] occur, ignored!\n", num, errno);
                    break;
                 }
                 //showMsg(buffer, n);
