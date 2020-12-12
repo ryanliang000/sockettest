@@ -19,10 +19,10 @@
 
 struct sockaddr_in  cli, fserv;
 unsigned int clilen = sizeof(cli);
-void showmsg(char *msg, int len)
+void showmsg(char msg[], int len)
 {
     for (int i=0; i<len; i++)
-       LOG_R("%02x ", (unsigned char)(msg[i]));
+       printf("%02x ", (unsigned char)(msg[i]));
 }
 void encodebuffer(unsigned char* msg, int len, unsigned char key)
 {
@@ -66,16 +66,16 @@ void settimeout(int sock, int second, int flag = -1)
 #define setsendtimeout(fd, sec) settimeout(fd, sec, SO_SNDTIMEO)
 #define setrecvtimeout(fd, sec) settimeout(fd, sec, SOL_RCVTIMEO);
 struct buffinfo{
-	char buf[BUFFER_LENGTH];
-	int recvnum;
-	int sendnum;
-	buffinfo():recvnum(0),sendnum(0){}
-}
+	char buff[BUFFER_LENGTH];
+	int recvn;
+	int sendn;
+	buffinfo():recvn(0),sendn(0){}
+};
 struct sockinfo{
    int fd;
    int dstfd;
    int state;
-   bufinfo tbuf;
+   buffinfo tbuf;
    sockinfo():fd(-1),dstfd(-1),state(-1){}
    sockinfo(int _fd, int _state):fd(_fd),state(_state),dstfd(-1){}
    sockinfo(int _fd, int _dstfd, int _state):fd(_fd),dstfd(_dstfd),state(_state){}
@@ -88,7 +88,7 @@ int proc_recv_sock1_with_buffer(int clifd, int& remote, int key);
 int proc_recv_sock0(int clifd, int &remote, int key)
 {// recv 5,1,0 or 5,2,1,0 reply 5,0
     //sock protocl identify
-	bufinfo& tbuf = sockinfos[clifd].tbuf;
+	buffinfo& tbuf = sockinfos[clifd].tbuf;
     if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 3){ 
        LOG_E("---recv sock head from client failed, n:%d---", tbuf.recvn); 
        close(clifd);
@@ -98,7 +98,7 @@ int proc_recv_sock0(int clifd, int &remote, int key)
 	encodebuffer((unsigned char*)tbuf.buff,tbuf.recvn,key);
 	char* buff = tbuf.buff;
     if (tbuf.recvn < 10){// first version check msg
-       if (buff[0] == 5 && ((buff[1] == 1 && buff[2] == 0) || buff[1] == tbuf.recvnn - 2)){
+       if (buff[0] == 5 && ((buff[1] == 1 && buff[2] == 0) || buff[1] == tbuf.recvn - 2)){
           tbuf.sendn = send(clifd, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
        }
        else{
@@ -116,7 +116,7 @@ int proc_recv_sock0(int clifd, int &remote, int key)
 }
 int proc_recv_sock1(int clifd, int& remote, int key)
 {// recv 5,1..host,port reply 5,0,0,1,ip,port
-    bufinfo& tbuf = sockinfos[clifd].tbuf; 
+    buffinfo& tbuf = sockinfos[clifd].tbuf; 
 	if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 10){
         LOG_E("receive start sock from client failed, len:%d", tbuf.recvn);
         close(clifd);
@@ -127,7 +127,7 @@ int proc_recv_sock1(int clifd, int& remote, int key)
 }
 int proc_recv_sock1_with_buffer(int clifd, int& remote, int key)
 {
-    bufinfo& tbuf = sockinfos[clifd].tbuf;
+    buffinfo& tbuf = sockinfos[clifd].tbuf;
 	char* buff = tbuf.buff;
 	if (buff[0] == 5 && buff[1] == 1 && buff[2] == 0)
     {// second remote address send msg
@@ -207,7 +207,7 @@ int proc_accept(int srvfd, int& clifd, int key)
 int proc_recv(int fd, int key)
 {
     int dstfd = sockinfos[fd].dstfd;
-	bufinfo& tbuf = sockinfos[clifd].tbuf;
+	buffinfo& tbuf = sockinfos[fd].tbuf;
     // LOG_E("proc recv param: %d,%d,%d", curr, remote, key);
     if ((tbuf.recvn = recv(fd, tbuf.buff, BUFFER_LENGTH, 0)) < 0)
     {
