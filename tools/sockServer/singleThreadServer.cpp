@@ -1,12 +1,8 @@
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <sys/types.h>
-#include <netdb.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/epoll.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
