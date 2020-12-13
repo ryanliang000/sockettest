@@ -3,9 +3,9 @@
 #define LOG(fd, title, ...)\
 	fprintf(fd, title);\
 	fprintf(fd, __VA_ARGS__);\
-	fprintf(fd, " -line:%d\n", __LINE__);
+	fprintf(fd, " (line:%d)\n", __LINE__);
 
-#ifdef RELEASE
+#ifdef REL
 	#define LOG_E(...) LOG(stderr, "[ERR]", __VA_ARGS__)
 	#define LOG_R(...)
 	#define LOG_I(...)
@@ -19,7 +19,7 @@
 	#define LOG_I(...) LOG(stdout, "[INF]", __VA_ARGS__)
 #endif
 
-#ifdef DEBUG
+#ifdef DBG
 	#define LOG_D(...) LOG(stdout, "[DBG]", __VA_ARGS__)
 #else
 	#define LOG_D(...)
