@@ -1,19 +1,15 @@
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <sys/types.h>
-#include <netdb.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/epoll.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
 #include "log.h"
 #include "pub.h"
-#define BUFFER_LENGTH 65536
+#define BUFFER_LENGTH 1200
 #define TIME_OUT 60
 #define TIME_OUT_MSG 60
 #define MAX_EVENT 256
@@ -37,7 +33,7 @@ struct sockinfo{
    void reset(int _fd, int _state){fd=_fd,state=_state,dstfd=-1;}
    void reset(int _fd, int _dstfd, int _state){fd=_fd,dstfd=_dstfd,state=_state;}
 };
-sockinfo sockinfos[2048];
+sockinfo sockinfos[1024];
 
 char acceptSockBuffer[2] = {5, 0};
 char startSockBuffer[10] = {5, 0, 0, 1, 0, 0, 0, 0, 0, 0};
@@ -47,8 +43,10 @@ int proc_recv_sock0(int clifd, int &remote, int key)
     //sock protocl identify
 	buffinfo& tbuf = sockinfos[clifd].tbuf;
     if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 3){ 
-       LOG_E("proc_sock %d: recv num[%d], error[%d]", clifd, tbuf.recvn, errno); 
-       close(clifd);
+       if (tbuf.recvn == 0 && errno == 0){
+            return 0;
+       }
+       LOG_E("proc_sock %d: recv num %d, error[%d-%s]", clifd, tbuf.recvn, errno, strerror(errno)); 
        return -1; 
     } 
 
@@ -60,7 +58,6 @@ int proc_recv_sock0(int clifd, int &remote, int key)
        }
        else{
           LOG_E("receive request sock type not 0x050100");
-          close(clifd);
           return -1;
        }
     }
@@ -76,7 +73,6 @@ int proc_recv_sock1(int clifd, int& remote, int key)
     buffinfo& tbuf = sockinfos[clifd].tbuf; 
 	if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 10){
         LOG_E("receive start sock from client failed, len:%d", tbuf.recvn);
-        close(clifd);
         return -1;
     }
     encodebuffer((unsigned char*)tbuf.buff, tbuf.recvn,key);
@@ -101,7 +97,6 @@ int proc_recv_sock1_with_buffer(int clifd, int& remote, int key)
     }
     else{
        LOG_E("receive sock start type not 0x050100");
-       close(clifd);
        return -1;
     }
     memcpy(startSockBuffer+4, &fserv.sin_addr.s_addr, 4);
@@ -109,10 +104,9 @@ int proc_recv_sock1_with_buffer(int clifd, int& remote, int key)
     // async connect to remote
     if ((remote = socket(PF_INET, SOCK_STREAM, 0)) < 0){
        LOG_E("---forward socket init failed---");
-       close(clifd);
        return -1;
     }
-	setnonblock(remote);
+	// setnonblock(remote);
     connect(remote, (sockaddr*)(&fserv), sizeof(fserv));
 	sockinfos[clifd].reset(clifd, remote, 2);
 	sockinfos[remote].reset(remote, clifd, 3);
@@ -166,17 +160,23 @@ int proc_recv(int fd, int key)
 {
     int dstfd = sockinfos[fd].dstfd;
 	buffinfo& tbuf = sockinfos[fd].tbuf;
+    int count = 0;
+ do{
+    count++;
     if ((tbuf.recvn = recv(fd, tbuf.buff, BUFFER_LENGTH, 0)) < 0)
     {
-        LOG_E("---recv from %d error[%d] occur, ignored!", fd, errno);
+        LOG_E("proc_recv: recv %d error[%d-%s] occur, ignored!", fd, errno, strerror(errno));
         return -1;
     }
     const char* label = ISCLIENT(fd) ? "client" : "remote"; 
     LOG_I("recv from %s-%d, send to %d, length:%d", label, fd, dstfd, tbuf.recvn);
     if (tbuf.recvn == 0)
     {
-       LOG_I("close by %s", label);
-       return -2;
+       if (count <= 1){
+           LOG_I("close by %s", label);
+           return -2;
+       }
+       return 0;
     }
     encodebuffer((unsigned char*)tbuf.buff, tbuf.recvn, key);
 	
@@ -186,7 +186,7 @@ int proc_recv(int fd, int key)
 			tbuf.sendn = 0;
 			return 1;
 		}
-		LOG_E("proc_recv %s: %d->%d send error[%d]", label, fd, dstfd, errno);
+		LOG_E("proc_recv %s: %d->%d send error[%d-%s]", label, fd, dstfd, errno, strerror(errno));
 		return -1;
 	}
     else if (num < tbuf.recvn)
@@ -194,6 +194,8 @@ int proc_recv(int fd, int key)
        tbuf.sendn = num;
 	   return 1;
     }
+} while(tbuf.recvn == BUFFER_LENGTH);
+
     return 0;
 }
 int proc_send(int fd, int key)
@@ -222,13 +224,13 @@ void removeepollfd(epoll_event* evpoll, int epfd, int fd, bool closefd=true)
 {
     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
     if (closefd) close(fd);
-    sockinfos[fd].reset(); 
     int dstfd = sockinfos[fd].dstfd;
     if (dstfd != -1){
         epoll_ctl(epfd, EPOLL_CTL_DEL, dstfd, NULL);
         if (closefd) close(dstfd);
         sockinfos[dstfd].reset();
     }
+    sockinfos[fd].reset();
 }
 void addepollflag(epoll_event* evpoll, int epfd, int fd, int flag)
 {
@@ -243,6 +245,9 @@ void delepollflag(epoll_event* evpoll, int epfd, int fd, int flag)
 
 int main(int argc, char **argv)
 {
+    signal(SIGPIPE, procperr);
+    signal(SIGCHLD, SIG_IGN);
+
     struct sockaddr_in serv;
     int srvfd;
     unsigned char key = 0;
@@ -279,7 +284,6 @@ int main(int argc, char **argv)
     LOG_R("start listen ... ");
     int forkid = -1;
     unsigned int clilen = sizeof(cli);
-    signal(SIGCHLD,SIG_IGN);
 
     // create epoll
     int epfd = epoll_create(MAX_EVENT);
@@ -328,15 +332,20 @@ int main(int argc, char **argv)
                continue;
             }
             if (event & EPOLLERR){
-				LOG_E("event error[%d], close conntions", event);
+				LOG_E("fd:%d-%d event epollerr[%d], close conntions", currfd, sockinfos[currfd].dstfd, event);
                 removeepollfd(evpoll, epfd, currfd);
 				continue;
 			}
 			if (state < 10){ // socks connection msg 
-				remote = -1;
+				if (state < 3 && !(event & EPOLLIN)){
+                    LOG_E("fd-%d state-%d the event[%d] is not epollin", currfd, state, event);
+                }
+                remote = -1;
                 proc_result = -1;
-				if (sockinfos[currfd].fd == -1) 
-					continue;
+				if (sockinfos[currfd].fd == -1){ 
+					LOG_E("fd-%d state-%d event-%d, sockinfo.fd=-1 abnormal", currfd, state, event);
+                    continue;
+                }
 				if (state == 0){
 					proc_result = proc_recv_sock0(currfd, remote, key);
                 }
@@ -365,8 +374,10 @@ int main(int argc, char **argv)
             }
 			if (event & EPOLLIN){ // recv and send data
                 proc_result = proc_recv(currfd, key);
-                if (proc_result < 0)
+                if (proc_result < 0){
                     removeepollfd(evpoll, epfd, currfd);
+                    continue;
+                }
                 if (proc_result == 1){ // send block then recv should block
                     int dstfd = sockinfos[currfd].dstfd;
                     delepollflag(evpoll, epfd, currfd, EPOLLIN);
@@ -381,8 +392,10 @@ int main(int argc, char **argv)
             }
             if (event & EPOLLOUT){
 				proc_result = proc_send(currfd, key);
-				if (proc_result < 0)
+				if (proc_result < 0){
                     removeepollfd(evpoll, epfd, currfd);
+                    continue;
+                }
 				else if (proc_result == 0){
 					int dstfd = sockinfos[currfd].dstfd;
 					delepollflag(evpoll, epfd, currfd, EPOLLOUT);
