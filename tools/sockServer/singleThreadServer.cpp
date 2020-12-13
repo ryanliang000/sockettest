@@ -17,7 +17,7 @@
 #define TIME_OUT_MSG 60
 #define MAX_EVENT 256
 
-struct sockaddr_in  cli, fserv;
+struct sockaddr_in cli, fserv;
 unsigned int clilen = sizeof(cli);
 void showmsg(char msg[], int len)
 {
@@ -92,7 +92,7 @@ int proc_recv_sock0(int clifd, int &remote, int key)
     //sock protocl identify
 	buffinfo& tbuf = sockinfos[clifd].tbuf;
     if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 3){ 
-       LOG_E("---recv sock head from client failed, n:%d---", tbuf.recvn); 
+       LOG_E("proc_sock %d: recv num[%d], error[%d]", clifd, tbuf.recvn, errno); 
        close(clifd);
        return -1; 
     } 
@@ -187,9 +187,8 @@ int proc_recv_sock3(int fd, int key)
 	int dstfd = sockinfos[fd].dstfd;
     setnonblock(fd);
 	setnonblock(dstfd);
-	settimeout(fd, TIME_OUT_MSG);
-	sockinfos[fd].state = 9;
-	sockinfos[dstfd].state = 9;
+	sockinfos[fd].state    = 12;
+	sockinfos[dstfd].state = 11;
     LOG_I("connection [%d-%d] established.", fd, dstfd);
     return 0;
 }
@@ -202,11 +201,11 @@ int proc_accept(int srvfd, int& clifd, int key)
         return -1;
     }
 	sockinfos[clifd].reset(clifd, 0);
-	settimeout(clifd, TIME_OUT_MSG);
     LOG_I("recv conn %d.", clifd); 
     return 0;
 }
 
+#define ISCLIENT(fd) (sockinfos[fd].state == 11)
 //proc_reuslt: 0-normal, -1-error, -2-close, 1-part sended
 int proc_recv(int fd, int key)
 {
@@ -217,10 +216,11 @@ int proc_recv(int fd, int key)
         LOG_E("---recv from %d error[%d] occur, ignored!", fd, errno);
         return -1;
     }
-    LOG_I("recv from %d, send to %d, length:%d", fd, dstfd, tbuf.recvn);
+    const char* label = ISCLIENT(fd) ? "client" : "remote"; 
+    LOG_I("recv from %s-%d, send to %d, length:%d", label, fd, dstfd, tbuf.recvn);
     if (tbuf.recvn == 0)
     {
-       LOG_R("close by client");
+       LOG_I("close by %s", label);
        return -2;
     }
     encodebuffer((unsigned char*)tbuf.buff, tbuf.recvn, key);
@@ -231,7 +231,7 @@ int proc_recv(int fd, int key)
 			tbuf.sendn = 0;
 			return 1;
 		}
-		LOG_E("---send to %d error[%d]---", dstfd, errno);
+		LOG_E("proc_recv %s: %d->%d send error[%d]", label, fd, dstfd, errno);
 		return -1;
 	}
     else if (num < tbuf.recvn)
@@ -243,21 +243,48 @@ int proc_recv(int fd, int key)
 }
 int proc_send(int fd, int key)
 {
-	sockinfo& info = sockinfos[fd];
+    const char *label = ISCLIENT(fd) ? "client":"remote";
+    sockinfo& info = sockinfos[fd];
 	sockinfo& dstinfo = sockinfos[info.dstfd];
 	buffinfo& tbuf = dstinfo.tbuf;
 	char* buff = tbuf.buff + tbuf.sendn;
 	int leftn = tbuf.recvn - tbuf.sendn;
 	int num = send(fd, buff, leftn, 0);
 	if (num < 0){
-		LOG_E("proc_send:%d, send error[%d]", fd, errno);
+		LOG_E("proc_send: %s-%d, send error[%d]", label, fd, errno);
 		return -1;
 	}
 	else if (num < leftn){
-		tbuf.sendn += num;
+		LOG_D("proc_send part: %s-%d, len=%d", label, fd, num);
+        tbuf.sendn += num;
 		return 1;
 	}
+    LOG_D("proc_send succ: %s-%d, len=%d", label, fd, num);
 	return 0;
+}
+
+void removeepollfd(epoll_event* evpoll, int epfd, int fd, bool closefd=true)
+{
+    epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
+    if (closefd) close(fd);
+    sockinfos[fd].reset(); 
+    int dstfd = sockinfos[fd].dstfd;
+    if (dstfd != -1){
+        epoll_ctl(epfd, EPOLL_CTL_DEL, dstfd, NULL);
+        if (closefd) close(dstfd);
+        sockinfos[dstfd].reset();
+    }
+}
+
+void addepollflag(epoll_event* evpoll, int epfd, int fd, int flag)
+{
+    evpoll[fd].events |= flag;
+    epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &evpoll[fd]);
+}
+void delepollflag(epoll_event* evpoll, int epfd, int fd, int flag)
+{
+    evpoll[fd].events ^= flag;
+    epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &evpoll[fd]);
 }
 
 int main(int argc, char **argv)
@@ -292,7 +319,7 @@ int main(int argc, char **argv)
     {
         err_sys("listen error");
     }
-    sockinfos[srvfd].reset(srvfd, 9);
+    sockinfos[srvfd].reset(srvfd, 11);
     encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
 
     LOG_R("start listen ... ");
@@ -306,7 +333,7 @@ int main(int argc, char **argv)
         err_sys("epoll create error");
     }
     // add sock to epoll
-    struct epoll_event srvev, evpool[2048], events[MAX_EVENT];
+    struct epoll_event srvev, evpoll[2048], events[MAX_EVENT];
     int fdmap[2048];
     srvev.events = EPOLLIN;
     srvev.data.fd = srvfd;
@@ -317,27 +344,6 @@ int main(int argc, char **argv)
     int proc_result = 0;
     int client = -1;
     int remote = -1;
-    void removeepollfd(int epfd, int fd, bool closefd=true)
-    {
-	   epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
-       if (closefd) close(fd);
-       sockinfos[fd].reset(); 
-       dstfd = sockinfos[fd].dstfd;
-       if (dstfd != -1){
-           epoll_ctl(epfd, EPOLL_CTL_DEL, dstfd, NULL);
-           if (closed) close(dstfd);
-           sockinfos[dstfd].reset(); 
-       } 
-	}
-    void addepollflag(int epfd, int fd, int flag){
-		evpoll[fd].events |= flag; 	
-		epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &evpool[fd]);	
-	}
-    void delepollflag(int epfd, int fd, int flag)
-	{
-		evpoll[fd].events ^= flag;
-        epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &evpool[fd]);  
-	}
 	for (;;){
         nfds = epoll_wait(epfd, events, MAX_EVENT, TIME_OUT);
         if (nfds == -1){
@@ -352,59 +358,65 @@ int main(int argc, char **argv)
 			int event = curr.events;
             LOG_I("epoll event %d, fd: %d, events: %d, state:%d", i, curr.data.fd, curr.events, state);
             if (curr.data.fd == srvfd){
-                // LOG_E("process accetp: %d", srvfd);
                 proc_result = proc_accept(srvfd, client, key);
                 if (proc_result == 0){
-                    evpool[client].data.fd = client;
-                    evpool[client].events = EPOLLIN;
-                    epoll_ctl(epfd, EPOLL_CTL_ADD, client, &evpool[client]);
+                    evpoll[client].data.fd = client;
+                    evpoll[client].events = EPOLLIN|EPOLLERR;
+                    epoll_ctl(epfd, EPOLL_CTL_ADD, client, &evpoll[client]);
                 }
                 else {
                     LOG_E("accept return abnormal: %d", proc_result);
                 }
 				continue;
             }
+            if (state == -1){
+               LOG_E("[fd-%d, event-%d]socket already closed!", currfd, event); 
+               continue;
+            }
             if (event & EPOLLERR){
-				removeepollfd(currfd);
+				LOG_E("event error[%d], close conntions", event);
+                removeepollfd(evpoll, epfd, currfd);
 				continue;
 			}
-			if (state < 9){ // socks connection msg 
+			if (state < 10){ // socks connection msg 
 				remote = -1;
                 proc_result = -1;
 				if (sockinfos[currfd].fd == -1) 
 					continue;
-				if (state == 0)
+				if (state == 0){
 					proc_result = proc_recv_sock0(currfd, remote, key);
+                }
 				else if (state == 1)
 					proc_result = proc_recv_sock1(currfd, remote, key);
 				else if (state == 2)
 					proc_result = 0;
                 else if (state == 3){
 				    proc_result = proc_recv_sock3(currfd, key);
-                    evpool[currfd].events = EPOLLIN;
-                    epoll_ctl(epfd, EPOLL_CTL_MOD, currfd, &evpool[currfd]);
+                    addepollflag(evpoll, epfd, sockinfos[currfd].dstfd, EPOLLIN);
+                    evpoll[currfd].events = EPOLLIN|EPOLLERR;
+                    epoll_ctl(epfd, EPOLL_CTL_MOD, currfd, &evpoll[currfd]);
                 }
-
                 if (proc_result == 0){ // proc finish and succ
 				    if (remote != -1){
-						evpool[remote].data.fd = remote;
-                    	evpool[remote].events = EPOLLOUT|EPOLLERR;
-                    	epoll_ctl(epfd, EPOLL_CTL_ADD, remote, &evpool[remote]);	
+                        delepollflag(evpoll, epfd, currfd, EPOLLIN);
+						evpoll[remote].data.fd = remote;
+                    	evpoll[remote].events = EPOLLOUT|EPOLLERR;
+                    	epoll_ctl(epfd, EPOLL_CTL_ADD, remote, &evpoll[remote]);	
 				    }
 				}
 				else{
-					removeepollfd(currfd);
+					removeepollfd(evpoll, epfd, currfd);
                 }
 				continue;
             }
-			if (state >= 9 && event & EPOLLIN){ // recv and send data
+			if (event & EPOLLIN){ // recv and send data
                 proc_result = proc_recv(currfd, key);
                 if (proc_result < 0)
-                    removeepollfd(currfd);
+                    removeepollfd(evpoll, epfd, currfd);
                 if (proc_result == 1){ // send block then recv should block
                     int dstfd = sockinfos[currfd].dstfd;
-                    delepollflag(currfd, EPOLLIN);
-                    addepollflag(dstfd, EPOLLOUT);
+                    delepollflag(evpoll, epfd, currfd, EPOLLIN);
+                    addepollflag(evpoll, epfd, dstfd, EPOLLOUT);
                 }
                 else if (proc_result == 2){ // send succ, then remove recv block
                     int dstfd = sockinfos[currfd].dstfd;
@@ -413,14 +425,14 @@ int main(int argc, char **argv)
                     proc_result = proc_send(currfd, key);
                 }
             }
-            if (state >= 9 && event & EPOLLOUT){
+            if (event & EPOLLOUT){
 				proc_result = proc_send(currfd, key);
 				if (proc_result < 0)
-                    removeepollfd(currfd);
+                    removeepollfd(evpoll, epfd, currfd);
 				else if (proc_result == 0){
 					int dstfd = sockinfos[currfd].dstfd;
-					delepollflag(currfd, EPOLLOUT);
-					addepollflag(dstfd, EPOLLIN);
+					delepollflag(evpoll, epfd, currfd, EPOLLOUT);
+					addepollflag(evpoll, epfd, dstfd, EPOLLIN);
 				}
             }
         }
