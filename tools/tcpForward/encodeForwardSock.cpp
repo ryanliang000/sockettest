@@ -59,20 +59,20 @@ int main(int argc, char **argv)
         err_sys("listen error");
     }
     num=0;
-    int recErrNum=0;
     int forkid = -1;
     unsigned int clilen = sizeof(cli);
     signal(SIGCHLD,SIG_IGN);
     for (;;)
     {
         fprintf(stdout, "wait for connection...\n");
-		num++;
         if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0)
         {
-            fprintf(stdout, "[num=%d]accept error[%d] occur, ignored!\n", num,  errno);
-            sleep(1);
+            num++;
+			fprintf(stdout, "[%d] accept error[%d] occur, ignored!\n", num, errno);
+            sleep(3000);
             continue;
         }
+		num = 0;
         fprintf(stdout, "[accetp connect %d]\n", clifd);
         
         // muti processes
@@ -86,7 +86,8 @@ int main(int argc, char **argv)
         else if (forkid < 0)
         {   
            fprintf(stdout, "error occur on fork");
-           continue;
+		   close(clifd);
+		   continue;
         }   
 		close(srvfd);
 		
@@ -94,15 +95,15 @@ int main(int argc, char **argv)
         {
            fprintf(stdout, "forward socket return failed\n");
            close(clifd);
-           continue;
+           break;
         } 
 		if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
         {
            close(clifd);
            fprintf(stdout, "connect to forward server failed\n");
-           continue;
+           break;
         }
-        
+       
         // identify sock message
         if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 3){
             fprintf(stdout, "receive from client failed\n");
