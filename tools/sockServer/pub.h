@@ -5,6 +5,12 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include "log.h"
+void procperr(int signum)
+{
+    if (signum == SIGPIPE)
+        LOG_E("fatal error sigpipe, port error[%d-%s]", errno, strerror(errno));
+}
+
 void showmsg(char msg[], int len)
 {   
     for (int i=0; i<len; i++)
