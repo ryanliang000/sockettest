@@ -78,17 +78,17 @@ int main(int argc, char **argv)
         // muti processes
         forkid = fork();
         if (forkid == 0)
-        {   
-           // main process
+        { // main process - fork succ
            close(clifd);
            continue;
         }   
         else if (forkid < 0)
-        {   
+        { // main process - fork failed 
            fprintf(stdout, "error occur on fork");
 		   close(clifd);
 		   continue;
-        }   
+        }  
+		// child process
 		close(srvfd);
 		
 		if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
@@ -100,6 +100,7 @@ int main(int argc, char **argv)
 		if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
         {
            close(clifd);
+		   close(fsrvfd);
            fprintf(stdout, "connect to forward server failed\n");
            break;
         }
@@ -128,7 +129,6 @@ int main(int argc, char **argv)
         struct timeval clitv = tv, srvtv = tv;
         setsockopt(clifd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&clitv, sizeof(tv));
         setsockopt(fsrvfd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&srvtv, sizeof(tv));       
- 
         // wait for message
         fprintf(stdout, "clifd: %d, fsrvfd: %d\n", clifd, fsrvfd);
         int rt = 0;
