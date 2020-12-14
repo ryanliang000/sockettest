@@ -43,10 +43,11 @@ int proc_recv_sock0(int clifd, int &remote, int key)
     //sock protocl identify
 	buffinfo& tbuf = sockinfos[clifd].tbuf;
     if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 3){ 
-       if (tbuf.recvn == 0 && errno == 0){
-            return 0;
-       }
-       LOG_E("proc_sock %d: recv num %d, error[%d-%s]", clifd, tbuf.recvn, errno, strerror(errno)); 
+       // if (tbuf.recvn == 0 && errno == 115){
+       //     LOG_R("proc_sock %d: recv 0 bytes, error[%d-%s]", clifd, errno, strerror(errno));
+       //     return 0;
+       //}
+       LOG_E("proc_sock client%d: recv num %d, error[%d-%s]", clifd, tbuf.recvn, errno, strerror(errno)); 
        return -1; 
     } 
 
@@ -82,10 +83,8 @@ int proc_recv_sock1_with_buffer(int clifd, int& remote, int key)
 {
     buffinfo& tbuf = sockinfos[clifd].tbuf;
 	char* buff = tbuf.buff;
-	if (buff[0] == 5 && buff[1] == 1 && buff[2] == 0)
-    {// second remote address send msg
-       if (buff[3] == 3)
-       {
+	if (buff[0] == 5 && buff[1] == 1 && buff[2] == 0){//second address send msg
+       if (buff[3] == 3){
           unsigned char bytes = buff[4];
           getsockaddrfromhost(buff+5, bytes, fserv);
           memcpy(&fserv.sin_port, buff+5+bytes, 2);
@@ -106,23 +105,25 @@ int proc_recv_sock1_with_buffer(int clifd, int& remote, int key)
        LOG_E("---forward socket init failed---");
        return -1;
     }
-	// setnonblock(remote);
-    connect(remote, (sockaddr*)(&fserv), sizeof(fserv));
-	sockinfos[clifd].reset(clifd, remote, 2);
-	sockinfos[remote].reset(remote, clifd, 3);
-    //if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0){
-    //   close(clifd);
-    //   close(remote);
-    //   LOG_E("connect to forward address failed");
-    //   return -1;
-    //}
+	setnonblock(remote);
+    int ret = connect(remote, (sockaddr*)(&fserv), sizeof(fserv));
+    if (ret == 0){
+        sockinfos[clifd].reset(clifd, remote, 11);
+        sockinfos[remote].reset(remote, clifd, 12);
+    }
+	else if (errno == EINPROGRESS){
+        sockinfos[clifd].reset(clifd, remote, 2);
+	    sockinfos[remote].reset(remote, clifd, 3);
+    }
+    else {
+        LOG_E("fd[%d-%d] forward connect failed[%d-%s]", clifd, remote, errno, strerror(errno));
+        return -1;
+    }
 
 	// send reply to client
 	encodebuffer((unsigned char*)startSockBuffer, sizeof(startSockBuffer), key);
     if (sizeof(startSockBuffer) != send(clifd, startSockBuffer, sizeof(startSockBuffer), 0)){
-       close(clifd);
-       close(remote);
-       LOG_E("send second msg to client failed");
+       LOG_E("fd[%d-%d]send second msg failed[%d-%s]", clifd, remote, errno, strerror(errno));
        return -1;
     }
     return 0;
@@ -150,7 +151,7 @@ int proc_accept(int srvfd, int& clifd, int key)
         return -1;
     }
 	sockinfos[clifd].reset(clifd, 0);
-    LOG_I("recv conn %d.", clifd); 
+    LOG_R("accept conn %d.", clifd); 
     return 0;
 }
 
@@ -225,6 +226,7 @@ void removeepollfd(epoll_event* evpoll, int epfd, int fd, bool closefd=true)
     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, NULL);
     if (closefd) close(fd);
     int dstfd = sockinfos[fd].dstfd;
+    LOG_R("close sock %d,%d", fd, dstfd);
     if (dstfd != -1){
         epoll_ctl(epfd, EPOLL_CTL_DEL, dstfd, NULL);
         if (closefd) close(dstfd);
@@ -274,11 +276,12 @@ int main(int argc, char **argv)
     {
         err_sys("bind error");
     }
+    setblock(srvfd);
     if (listen(srvfd, 6) <0)
     {
         err_sys("listen error");
     }
-    sockinfos[srvfd].reset(srvfd, 11);
+    sockinfos[srvfd].reset(srvfd, 10);
     encodebuffer((unsigned char*)acceptSockBuffer, sizeof(acceptSockBuffer),key);
 
     LOG_R("start listen ... ");
@@ -328,7 +331,7 @@ int main(int argc, char **argv)
 				continue;
             }
             if (sockinfos[currfd].fd == -1){
-               LOG_E("[fd-%d, event-%d]socket already closed!", currfd, event); 
+               LOG_R("[fd-%d, event-%d]oper sock already closed", currfd, event); 
                continue;
             }
             if (event & EPOLLERR){
