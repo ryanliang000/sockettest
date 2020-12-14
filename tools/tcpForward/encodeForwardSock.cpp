@@ -8,19 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "myerr.h"
+#include "log.h"
+#include "pub.h"
 #define BUFFER_LENGTH 65536
 #define TIME_OUT 60
-void showMsg(char *buffer, int len)
-{
-    for (int i=0; i<len; i++)
-       fprintf(stdout, "%02x ", (unsigned char)(buffer[i]));
-    fprintf(stdout, "\n");
-}
-void encodebuffer(unsigned char* buffer, int len, unsigned char key)
-{
-   for (int i=0; i<len; i++)
-      buffer[i] = buffer[i] ^ key;
-}
 int main(int argc, char **argv)
 {
     struct sockaddr_in serv, cli, fserv;
@@ -64,16 +55,16 @@ int main(int argc, char **argv)
     signal(SIGCHLD,SIG_IGN);
     for (;;)
     {
-        fprintf(stdout, "wait for connection...\n");
+        LOG_R("wait for connection...");
         if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0)
         {
             num++;
-			fprintf(stdout, "[%d] accept error[%d] occur, ignored!\n", num, errno);
+			LOG_E("[%d] accept error[%d] occur, ignored!", num, errno);
             sleep(3000);
             continue;
         }
 		num = 0;
-        fprintf(stdout, "[accetp connect %d]\n", clifd);
+        LOG_R("[accetp connect %d]", clifd);
         
         // muti processes
         forkid = fork();
@@ -84,7 +75,7 @@ int main(int argc, char **argv)
         }   
         else if (forkid < 0)
         { // main process - fork failed 
-           fprintf(stdout, "error occur on fork");
+           LOG_E("error occur on fork");
 		   close(clifd);
 		   continue;
         }  
@@ -93,7 +84,7 @@ int main(int argc, char **argv)
 		
 		if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
         {
-           fprintf(stdout, "forward socket return failed\n");
+           LOG_E("forward socket return failed");
            close(clifd);
            break;
         } 
@@ -101,13 +92,13 @@ int main(int argc, char **argv)
         {
            close(clifd);
 		   close(fsrvfd);
-           fprintf(stdout, "connect to forward server failed\n");
+           LOG_E("connect to forward server failed");
            break;
         }
        
         // identify sock message
         if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 3){
-            fprintf(stdout, "receive from client failed\n");
+            LOG_E("receive from client failed");
             close(clifd);
             close(fsrvfd);
             break;
@@ -116,38 +107,34 @@ int main(int argc, char **argv)
             send(clifd, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
         }
         else{
-           fprintf(stdout, "receive request sock type not 0x050100\n");
+           LOG_E("receive request sock type not 0x050100");
            close(clifd);
            close(fsrvfd);
            break;
         }
         
         // set time out
-        struct timeval tv;
-        tv.tv_sec = TIME_OUT;
-        tv.tv_usec = 0;
-        struct timeval clitv = tv, srvtv = tv;
-        setsockopt(clifd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&clitv, sizeof(tv));
-        setsockopt(fsrvfd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&srvtv, sizeof(tv));       
-        // wait for message
-        fprintf(stdout, "clifd: %d, fsrvfd: %d\n", clifd, fsrvfd);
+		settimeout(clifd, TIME_OUT);
+		settimeout(fsrvfd, TIME_OUT);
+        
+		// wait for message
+        LOG_I("clifd: %d, fsrvfd: %d", clifd, fsrvfd);
         int rt = 0;
         int maxfd = clifd > fsrvfd ? clifd+1 : fsrvfd+1;
         //printf("maxfd=%d\n", maxfd);
         while(true)
         {
-            tv.tv_sec = clitv.tv_sec = srvtv.tv_sec = TIME_OUT;
             FD_ZERO(&fdset);
             FD_SET(clifd, &fdset);
             FD_SET(fsrvfd, &fdset);
             if ((rt=select(maxfd, &fdset, NULL, NULL, &tv)) == 0)
             {
-                fprintf(stdout, "select timeout\n");
+                LOG_R("select timeout");
                 break;
             }
             if (rt < 0)
             {
-                fprintf(stdout, "select error occor\n");
+                LOG_E("select error occor");
                 break;
             }
             n = 0;
@@ -156,19 +143,19 @@ int main(int argc, char **argv)
             {
                if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 0)
                {
-                  fprintf(stdout, "[n=%d]recv from client error[%d] occur, ignored!\n", n, errno);
+                  LOG_E("[n=%d]recv from client error[%d] occur, ignored!", n, errno);
                   break;
                }
-			   fprintf(stdout, "recv from client:%d, length:%d\n", clifd,n);
+			   LOG_I("recv from client:%d, length:%d", clifd,n);
                if (n == 0)
                {
-                  fprintf(stdout, "close by client\n");
+                  LOG_R("close by client");
                   break;
                }
                encodebuffer((unsigned char*)buffer, n, key);
                if (send(fsrvfd, buffer, n, 0) != n)
                {
-                   fprintf(stdout, "[n=%d]send to remote error[%d] occur, ignored!\n", num, errno);
+                   LOG_E("[n=%d]send to remote error[%d] occur, ignored!", num, errno);
                    break;
                }
                //showMsg(buffer, n);
@@ -179,19 +166,19 @@ int main(int argc, char **argv)
             {
                 if ((n = recv(fsrvfd, buffer, BUFFER_LENGTH, 0)) < 0)
                 {
-                   fprintf(stdout, "[n=%d]recv from remote error[%d] occur, ignored!\n", n, errno);
+                   LOG_E("[n=%d]recv from remote error[%d] occur", n, errno);
                    break;
                 }
-				fprintf(stdout, "recv from remote:%d, length:%d\n", fsrvfd,n);
+				LOG_I("recv from remote:%d, length:%d", fsrvfd,n);
                 if (n == 0)
                 {
-                   fprintf(stdout, "close by remote\n");
+                   LOG_R("close by remote");
                    break;
                 }
                 encodebuffer((unsigned char*)buffer, n, key);
                 if (send(clifd, buffer, n, 0) != n)
                 {
-                   fprintf(stdout, "[n=%d]send to client error[%d] occur, ignored!\n", num, errno);
+                   LOG_E("[n=%d]send to client error[%d] occur", num, errno);
                    break;
                 }
                 //showMsg(buffer, n);
