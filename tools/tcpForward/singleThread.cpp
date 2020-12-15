@@ -117,8 +117,6 @@ int main(int argc, char **argv)
     struct sockaddr_in serv;
     int srvfd;
     unsigned char key = 0;
-    char acceptSockBuffer[2] = {5, 0};
-    char startSockBuffer[10] = {5, 0, 0, 1, 0, 0, 0, 0, 0, 0};
     if (argc < 5)
     {
         err_quit( "Usage: %s forwardip forwardport servport encodekey\n", argv[0]);
