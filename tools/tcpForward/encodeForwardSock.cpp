@@ -11,7 +11,7 @@
 #include "log.h"
 #include "pub.h"
 #define BUFFER_LENGTH 65536
-#define TIME_OUT 60
+#define TIME_OUT 120
 int main(int argc, char **argv)
 {
     struct sockaddr_in serv, cli, fserv;
@@ -20,7 +20,6 @@ int main(int argc, char **argv)
     fd_set fdset;
     unsigned char key = 0;
     char acceptSockBuffer[2] = {5, 0};
-    char startSockBuffer[10] = {5, 0, 0, 1, 0, 0, 0, 0, 0, 0};
     if (argc < 5)
     {
         err_quit( "Usage: %s forwardip forwardport servport encodekey\n", argv[0]);
@@ -114,8 +113,8 @@ int main(int argc, char **argv)
         }
         
         // set time out
-		settimeout(clifd, TIME_OUT);
-		settimeout(fsrvfd, TIME_OUT);
+		// settimeout(clifd, TIME_OUT);
+		// settimeout(fsrvfd, TIME_OUT);
         
 		// wait for message
         LOG_I("clifd: %d, fsrvfd: %d", clifd, fsrvfd);
@@ -127,6 +126,9 @@ int main(int argc, char **argv)
             FD_ZERO(&fdset);
             FD_SET(clifd, &fdset);
             FD_SET(fsrvfd, &fdset);
+			timeval tv;
+			tv.tv_sec = TIME_OUT;
+			tv.tv_usec = 0;
             if ((rt=select(maxfd, &fdset, NULL, NULL, &tv)) == 0)
             {
                 LOG_R("select timeout");
@@ -143,7 +145,7 @@ int main(int argc, char **argv)
             {
                if ((n = recv(clifd, buffer, BUFFER_LENGTH, 0)) < 0)
                {
-                  LOG_E("[n=%d]recv from client error[%d] occur, ignored!", n, errno);
+                  LOG_E("recv%d from client error[%d-%s]", n, errno, strerror(errno));
                   break;
                }
 			   LOG_I("recv from client:%d, length:%d", clifd,n);
