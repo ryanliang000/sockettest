@@ -9,8 +9,8 @@
 #include "myerr.h"
 #include "log.h"
 #include "pub.h"
-#define BUFFER_LENGTH 1200
-#define TIME_OUT 60
+#define BUFFER_LENGTH 1024 * 24
+#define TIME_OUT 60 * 2
 #define TIME_OUT_MSG 60
 #define MAX_EVENT 256
 
