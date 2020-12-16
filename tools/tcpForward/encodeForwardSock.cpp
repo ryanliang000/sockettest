@@ -39,8 +39,8 @@ int main(int argc, char **argv)
     key = atoi(argv[4]);
     int opt=1;
     setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-	setsockopt(srvfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
-	if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
+    setsockopt(srvfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+    if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
     {
         err_sys("bind error");
     }
@@ -58,11 +58,11 @@ int main(int argc, char **argv)
         if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0)
         {
             num++;
-			LOG_E("[%d] accept error[%d] occur, ignored!", num, errno);
+            LOG_E("[%d] accept error[%d] occur, ignored!", num, errno);
             sleep(3000);
             continue;
         }
-		num = 0;
+        num = 0;
         LOG_R("[accetp connect %d]", clifd);
         
         // muti processes
@@ -75,22 +75,22 @@ int main(int argc, char **argv)
         else if (forkid < 0)
         { // main process - fork failed 
            LOG_E("error occur on fork");
-		   close(clifd);
-		   continue;
+           close(clifd);
+           continue;
         }  
-		// child process
-		close(srvfd);
-		
-		if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
+        // child process
+        close(srvfd);
+        
+        if ((fsrvfd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
         {
            LOG_E("forward socket return failed");
            close(clifd);
            break;
         } 
-		if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
+        if (connect(fsrvfd, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
         {
            close(clifd);
-		   close(fsrvfd);
+           close(fsrvfd);
            LOG_E("connect to forward server failed");
            break;
         }
@@ -103,6 +103,7 @@ int main(int argc, char **argv)
             break;
         }
         if (n == 3 && buffer[0] == 5 && buffer[1] == 1 && buffer[2] == 0){
+            LOG_D("recv sock: %s", buffer2hex(buffer, n));
             send(clifd, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
         }
         else{
@@ -113,22 +114,24 @@ int main(int argc, char **argv)
         }
         
         // set time out
-		// settimeout(clifd, TIME_OUT);
-		// settimeout(fsrvfd, TIME_OUT);
+        // settimeout(clifd, TIME_OUT);
+        // settimeout(fsrvfd, TIME_OUT);
         
-		// wait for message
+        // wait for message
         LOG_I("clifd: %d, fsrvfd: %d", clifd, fsrvfd);
         int rt = 0;
         int maxfd = clifd > fsrvfd ? clifd+1 : fsrvfd+1;
         //printf("maxfd=%d\n", maxfd);
+        int first = true;
+        int firstremote = true;
         while(true)
         {
             FD_ZERO(&fdset);
             FD_SET(clifd, &fdset);
             FD_SET(fsrvfd, &fdset);
-			timeval tv;
-			tv.tv_sec = TIME_OUT;
-			tv.tv_usec = 0;
+            timeval tv;
+            tv.tv_sec = TIME_OUT;
+            tv.tv_usec = 0;
             if ((rt=select(maxfd, &fdset, NULL, NULL, &tv)) == 0)
             {
                 LOG_R("select timeout");
@@ -148,12 +151,13 @@ int main(int argc, char **argv)
                   LOG_E("recv%d from client error[%d-%s]", n, errno, strerror(errno));
                   break;
                }
-			   LOG_I("recv from client:%d, length:%d", clifd,n);
+               LOG_I("recv from client:%d, length:%d", clifd,n);
                if (n == 0)
                {
                   LOG_R("close by client");
                   break;
                }
+               if (first){first = false; LOG_D("recv sock info: %s", buffer2hex(buffer, n));}
                encodebuffer((unsigned char*)buffer, n, key);
                if (send(fsrvfd, buffer, n, 0) != n)
                {
@@ -171,13 +175,14 @@ int main(int argc, char **argv)
                    LOG_E("[n=%d]recv from remote error[%d] occur", n, errno);
                    break;
                 }
-				LOG_I("recv from remote:%d, length:%d", fsrvfd,n);
+                LOG_I("recv from remote:%d, length:%d", fsrvfd,n);
                 if (n == 0)
                 {
                    LOG_R("close by remote");
                    break;
                 }
                 encodebuffer((unsigned char*)buffer, n, key);
+                if (firstremote){firstremote = false; LOG_D("recv remote sock info: %s", buffer2hex(buffer, n));}
                 if (send(clifd, buffer, n, 0) != n)
                 {
                    LOG_E("[n=%d]send to client error[%d] occur", num, errno);
