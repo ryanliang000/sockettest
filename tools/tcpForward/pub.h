@@ -10,11 +10,14 @@ void procperr(int signum)
     if (signum == SIGPIPE)
         LOG_E("fatal error sigpipe, port error[%d-%s]", errno, strerror(errno));
 }
-
-void showmsg(char msg[], int len)
-{   
-    for (int i=0; i<len; i++)
-       printf("%02x ", (unsigned char)(msg[i]));
+char hexbuffer[1024*3];
+char* buffer2hex(char msg[], int len)
+{
+    len = len >= 1024 ? 1023 : len;
+    for (int i=0; i<len; i++){
+       sprintf(hexbuffer+3*i, "%02X ", (unsigned char)(msg[i]));
+    }
+    return hexbuffer;
 }
 void encodebuffer(unsigned char* msg, int len, unsigned char key)
 {
