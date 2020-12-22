@@ -151,6 +151,7 @@ int proc_accept(int srvfd, int& clifd, int & remote, int key)
         return -1;
     }
 	sockinfos[clifd].reset(clifd, 0);
+    setnonblock(clifd);
     LOG_R("proc_accept conn %d. curr epoll fds: %d", clifd, fdnums); 
     return 0;
 }
