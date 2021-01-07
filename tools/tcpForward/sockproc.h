@@ -31,53 +31,32 @@ struct tsock{
 	char* desc(){
 		if(flag==1) return "client";
 		else if(flag==2) return "remote";
-		else if(flag==0} return "server";
+		else if(flag==0) return "server";
 		else return "";
+	}
 };
 
-// 0: recv message and encode, then send to dstfd succ
-// 1: recv message and encode, but send not finished
-//-1: recv failed or send failed
-//-2: close by current fd
-int recvsockandsend(tsock& info, int key)
+// 1: recv message empty
+// 0: recv message succ
+//-1: recv message failed
+//-2: close by peer 
+int recvsock(tsock& info)
 {
-	tbuff& tbuf = info.tbuf;
+    tbuff& tbuf = info.tbuf;
 	int fd = info.fd;
-	int dst = info.dstfd;
-	int cnt = 0;
-	do{
-		++cnt;
-		if ((tbuf.recvn = recv(fd, tbuf.buff, TBUFF_LENGTH, 0) < 0){
-			LOG_E("recvsockandsend: recv fd[%d] error[%d-%s]", fd, errno, strerror(errno));
-			return -1;
+    if ((tbuf.recvn = recv(fd, tbuf.buff, TBUFF_LENGTH, 0) < 0){ 
+        LOG_E("recvsockandsend: recv fd[%d] error[%d-%s]", fd, errno, strerror(errno));
+        return -1; 
+    }   
+    if (tbuf.recvn == 0){ 
+        if (errno == EAGAIN || errno == EWOULDBLOCK){
+			return 1;
 		}
-		if (tbuf.recvn == 0){
-			if (cnt == 1){
-				LOG_I("recvsockandsend: close by %s fd[%d]", info.desc(), fd);
-				return -2;
-			}
-			return 0;
-		}
-		encodebuffer(tbuf.buff, tbuf.recvn, key);
-		
-		tbuf.sendn = send(dstfd, tbuf.buff, tbuf.recvn, 0);
-		if (tbuf.sendn == tbuf.recvn){
-			continue;
-		}
-		if(tbuf.sendn < 0){
-			if (errno == EAGAIN || errno == EWOULDBLOCK){
-				tbuf.sendn = 0;
-				return 1;
-			}
-			LOG_E("recvsockandsend: send fd[%d] error[%d-%s]", dstfd, errno, strerror(err    no));
-			return -1;
-		}
-		return 1;
-	}
-	while(tbuf.recvn == tbuf.sendn);
+		LOG_I("recvsockandsend: close by %s fd[%d]", info.desc(), fd);
+		return -2; 
+    }
 	return 0;
 }
-
 // 0: send message succ
 // 1: send message not finished
 //-1: send failed
@@ -87,18 +66,43 @@ int sendsock(tsock& info)
 	char* buff = tbuf.leftbuff();
 	if (buff == NULL)
 		return 0;
-    
 	int left = tbuf.leftlen();
 	int num = send(info.dstfd, buff, left, 0);
 	if (num == left){
+		tbuf.sendn = tbuf.recvn;
 		return 0;
 	}
 	else if (num < 0){
+	    if (errno == EAGAIN || errno == EWOULDBLOCK){
+            return 1;
+        }
 		LOG_E("sendsock: fd[%d->%d], len[%d], error[%d-%s]", info.fd, info.dstfd, left, errno, strerror(errno));
 		return -1;
 	}
-	
 	tbuf.sendn += num;
 	return 1;
+}
+
+// 0: recv message and encode, then send to dstfd succ
+// 1: recv message and encode, but send not finished
+//-1: recv failed or send failed
+//-2: close by current fd
+int recvsockandsendencoded(tsock& info, int key)
+{
+    tbuff& tbuf = info.tbuf;
+    int fd = info.fd;
+    int dst = info.dstfd;
+	int rt = 0;
+    do{
+		tbuf.reset();
+		if ((rt =recvsock(info)) < 0){ 
+			return rt;
+		}
+		encodebuffer(tbuf.buff, tbuf.recvn, key);
+		if ((rt = sendsock(info)) != 0){
+			return rt;
+		}
+    }while(tbuf.recvn == tbuf.sendn);
+    return 0;
 }
 
