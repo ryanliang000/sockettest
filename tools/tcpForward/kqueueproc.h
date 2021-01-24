@@ -1,16 +1,12 @@
 #include <sys/event.h>
 #define addkqueuefd(evread, evwrite, epfd, fd, flag) {\
     if (flag == EVFILT_READ){\
-		evread[fd].ident = fd;\
-		evread[fd].filter = EVFILT_READ;\
     	EV_SET(&evread[fd], fd, EVFILT_READ, EV_ADD|EV_ENABLE, 0, 0, NULL);\
 		kevent(epfd, &evread[fd], 1, NULL, 0, NULL);\
 		LOG_D("insertkqueue: fd-%d, flag-read", fd);\
 		fdnums++;\
 	}\
 	if (flag == EVFILT_WRITE){\
-		evwrite[fd].ident = fd;\
-		evwrite[fd].filter = EVFILT_WRITE;\
 		EV_SET(&evwrite[fd], fd, EVFILT_WRITE, EV_ADD|EV_ENABLE, 0, 0, NULL);\
 		kevent(epfd, &evwrite[fd], 1, NULL, 0, NULL);\
 		LOG_D("insertkqueue: fd-%d, flag-write", fd);\
