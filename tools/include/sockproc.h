@@ -28,11 +28,11 @@ struct tsock{
 	void setfd(int _fd, int _dstfd){fd=_fd, dstfd=_dstfd;}
 	void setdst(int _dstfd){dstfd=_dstfd;}
 	void setflag(int _flag){flag=_flag;}
-	char* desc(){
+	const char* desc(){
 		if(flag==1) return "client";
 		else if(flag==2) return "remote";
 		else if(flag==0) return "server";
-		else return "";
+		return "";
 	}
 };
 
@@ -44,7 +44,7 @@ int recvsock(tsock& info)
 {
     tbuff& tbuf = info.tbuf;
 	int fd = info.fd;
-    if ((tbuf.recvn = recv(fd, tbuf.buff, TBUFF_LENGTH, 0) < 0){ 
+    if ((tbuf.recvn = recv(fd, tbuf.buff, TBUFF_LENGTH, 0)) < 0){ 
         LOG_E("recvsockandsend: recv fd[%d] error[%d-%s]", fd, errno, strerror(errno));
         return -1; 
     }   
@@ -111,8 +111,7 @@ int recvsockandsendencoded(tsock& info, int key)
 //-1: recv failed or send failed
 //-2: close by current fd
 //-3: sock1 message explain failed
-char acceptSockBuffer[2] = {5, 0};
-int recvsock1andreply(tsock& info)
+int recvsock1andreplyencoded(tsock& info, int key=0)
 {
 	tbuff& tbuf = info.tbuf;
 	int fd = info.fd;
@@ -132,9 +131,12 @@ int recvsock1andreply(tsock& info)
 		LOG_E("receive sock1 message len:%d not expected", n);
 		return -3;
 	}
+	encodebuffer(tbuf.buff, tbuf.recvn, key);
 	if (buff[0] == 5 && ((buff[1] == 1 && buff[2] == 0)|| buff[1] == n-2)){
 		LOG_D("recv sock1: %s", buffer2hex(buff, n));
-		send(dst, acceptSockBuffer, sizeof(acceptSockBuffer), 0);
+        char _acceptSockBuffer[2] = {5, 0};
+        encodebuffer(_acceptSockBuffer, sizeof(_acceptSockBuffer), key);
+		send(dst, _acceptSockBuffer, sizeof(_acceptSockBuffer), 0);
 	}
 	else {
 		LOG_E("recv sock1 message not expected: %s", buffer2hex(buff, n));
@@ -142,3 +144,5 @@ int recvsock1andreply(tsock& info)
 	}
 	return 0;
 }
+#define recvsock1andreply(info) recvsock1andreplyencoded(info, 0);
+
