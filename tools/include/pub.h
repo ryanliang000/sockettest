@@ -10,10 +10,10 @@ void procperr(int signum)
     if (signum == SIGPIPE)
         LOG_E("fatal error sigpipe, port error[%d-%s]", errno, strerror(errno));
 }
-char _hexbuffer[1024*3];
 char* buffer2hex(char msg[], int len)
 {
-    len = len >= 1024 ? 1023 : len;
+    static char _hexbuffer[1024*3];
+	len = len >= 1024 ? 1023 : len;
     for (int i=0; i<len; i++){
        sprintf(_hexbuffer+3*i, "%02X ", (unsigned char)(msg[i]));
     }
@@ -21,8 +21,13 @@ char* buffer2hex(char msg[], int len)
 }
 void encodebuffer(unsigned char* msg, int len, unsigned char key)
 {
+   if (key == 0) return;
    for (int i=0; i<len; i++)
       msg[i] = msg[i] ^ key;
+}
+void encodebuffer(char* msg, int len, unsigned char key)
+{
+	return encodebuffer((unsigned char *)msg, len ,key);
 }
 bool getsockaddrfromhost(char* msg, unsigned char bytes, sockaddr_in& serv)
 {
@@ -61,7 +66,7 @@ void settimeout(int sock, int second, int flag = -1)
 #define setsendtimeout(fd, sec) settimeout(fd, sec, SO_SNDTIMEO)
 #define setrecvtimeout(fd, sec) settimeout(fd, sec, SOL_RCVTIMEO);
 
-void setsockreuse(fd)
+void setsockreuse(int fd)
 {
 	int opt = 1;
 	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
