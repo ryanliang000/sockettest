@@ -18,16 +18,15 @@
 
 #define BUFFER_LENGTH 65536
 #define TIME_OUT 30
-#define TIME_OUT_MSG 15
-#define MAX_EVENT 256
-
-int fdnums = 0;
+#define TIME_OUT_MSG 30
 #include "kqueueproc.h"
 
 
 struct sockaddr_in fserv;
 unsigned int clilen = sizeof(fserv);
 char buffer[BUFFER_LENGTH];
+unsigned char encodekey = 0xA9;
+int fdmap[2048];
 
 // 0-Succ
 // 1-Close
@@ -54,6 +53,23 @@ int proc_accept(int srvfd, int& clifd, int& remote)
     LOG_I("connection [%d-%d] established", clifd, remote); 
     return 0;
 }
+int cb_proc_recv(int, int);
+int cb_proc_accept(int fd, int filter)
+{
+	LOG_I("process accept: %d", fd);
+	int clifd = -1, remfd = -1;
+	int proc_result = proc_accept(fd, clifd, remfd);
+	if (proc_result == 0){
+        regxeventfunc(clifd, xfilter_read, cb_proc_recv);
+		regxeventfunc(remfd, xfilter_read, cb_proc_recv);
+        fdmap[clifd]=remfd;
+		fdmap[remfd]=clifd;
+    }
+    else {
+        LOG_E("accept return abnormal: %d", proc_result);
+    }
+	return proc_result;
+}
 int proc_recv(int curr, int remote, int key)
 {
     int n = 0;
@@ -79,12 +95,24 @@ int proc_recv(int curr, int remote, int key)
     }
     return 0;
 }
-
+int cb_proc_recv(int fd, int filter)
+{
+	LOG_I("process recv: %d", fd);
+	int dstfd = fdmap[fd];
+    int proc_result = proc_recv(fd, dstfd, encodekey);
+    if (proc_result != 0){
+        unregxevent(fd);
+		close(fd);
+		unregxevent(dstfd);
+		close(dstfd);
+    }
+	return 0;
+}
 int main(int argc, char **argv)
 {
-    struct sockaddr_in serv;
+    signal(SIGPIPE, procperr);
+	struct sockaddr_in serv;
     int srvfd;
-    unsigned char key = 0;
     if (argc < 5)
     {
         err_quit( "Usage: %s forwardip forwardport servport encodekey\n", argv[0]);
@@ -101,7 +129,7 @@ int main(int argc, char **argv)
     fserv.sin_family = AF_INET;
     fserv.sin_addr.s_addr = inet_addr(argv[1]);
     fserv.sin_port = htons(atoi(argv[2]));
-    key = atoi(argv[4]);
+    encodekey = atoi(argv[4]);
 	setsockreuse(srvfd);
     if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
     {
@@ -115,55 +143,22 @@ int main(int argc, char **argv)
     int forkid = -1;
     signal(SIGCHLD,SIG_IGN);
 
-    // create epoll
-    //int epfd = epoll_create(MAX_EVENT);
-    int epfd = kqueue();
-	if (epfd == -1){
-        err_sys("epoll create error");
-    }
+    // init xevent
+	initxevent();
     // add sock to epoll
-    struct kevent evread[2048], evwrite[2048], events[MAX_EVENT];
-    int fdmap[2048];
-	addkqueuefd(evread, evwrite, epfd, srvfd, EVFILT_READ);
-    int nfds = -1;
-    int proc_result = 0;
-    int client = -1;
-    int remote = -1;
-	struct timespec tv;
-	tv.tv_sec = TIME_OUT_MSG;
-	tv.tv_nsec = 0;
-    for (;;){
-        tv.tv_sec = TIME_OUT_MSG;
+	regxeventfunc(srvfd, xfilter_read, cb_proc_accept);
+
+    while(true){
+		dispatchxevent(TIME_OUT_MSG);	
+	}
+	return -1;
+	
+	/*
 		nfds = kevent(epfd, NULL, 0, events, MAX_EVENT, &tv);
         if (nfds == -1){
             LOG_E("epoll wait error[%d], ignored!", errno);
             continue;
         }
-        for (int i=0; i<nfds; i++){
-            struct kevent curr = events[i];
-            LOG_D("kevent %d, fd: %d, events: %s", i, int(curr.ident), evdesc(curr.filter));
-            if (curr.ident == srvfd){
-                LOG_I("process accetp: %d", srvfd);
-                proc_result = proc_accept(srvfd, client, remote);
-                if (proc_result == 0){
-					addkqueuefd(evread, evwrite, epfd, client, EVFILT_READ);
-					addkqueuefd(evread, evwrite, epfd, remote, EVFILT_READ);
-					fdmap[client]=remote;
-					fdmap[remote]=client;
-                }
-				else {
-                    LOG_E("accept return abnormal: %d", proc_result);
-                }
-            }
-            else
-            {
-                LOG_I("process recv: %d", int(curr.ident));
-                proc_result = proc_recv(curr.ident, fdmap[curr.ident], key); 
-                if (proc_result != 0){
-					removekqueuefd(evread, evwrite, epfd, curr.ident, fdmap[curr.ident]);
-                }
-            }
-        }
-    }
     return 0;
+	*/
 }
