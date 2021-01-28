@@ -1,4 +1,3 @@
-#include <sys/event.h>
 #define MAX_EVENT_POOL 2048
 #define MAX_EVENT_RECV 128
 int _fdnums = 0;
@@ -27,8 +26,26 @@ struct xevent{
 	xevent():fd(-1){}
 	xevent(int infd):fd(infd){}
 };
-struct xevent xeventpool[MAX_EVENT_POOL];
+struct xevent _xeventpool[MAX_EVENT_POOL];
+xevent* xeventpool(){
+	return _xeventpool;
+}
+const char* xfilterdesc(int xfilter){
+    static char _desc[64];
+    switch(xfilter){
+    case xfilter_read:
+        return "READ";
+    case xfilter_write:
+        return "WRITE";
+    case xfilter_error:
+        return "ERROR";
+    default:
+        sprintf(_desc, "flt-%d", xfilter);
+    }
+    return _desc;
+}
 
+#include <sys/event.h>
 int xfilter2kfilter(int xfilter)
 {
 	switch(xfilter){
@@ -69,13 +86,13 @@ struct kevent buildkevent(int fd, int xfilter, xevent_action act)
 // get proc func from fd and filter
 xevent_callback geteventcallback(int fd, int kfilter)
 {
-	xevent& evt = xeventpool[fd];
+	xevent& evt = xeventpool()[fd];
 	if (evt.fd != fd)
 		return NULL;
 	xevent_filter xflt = kfilter2xfilter(kfilter);
 	if (evt.funcs[xflt].filter == -1)
 		return NULL;
-	return xeventpool[fd].funcs[xflt].func;
+	return evt.funcs[xflt].func;
 }
 xevent_callback geteventcallback(struct kevent& kevt)
 {
@@ -90,9 +107,13 @@ xevent_callback geteventcallback(struct kevent& kevt)
 const char* xfilterdesc(int xfilter);
 
 // 0-Succ, -1-failed
-int regxeventfunc(int fd, xevent_filter filter, xevent_callback func)
+int regxevent(int fd, xevent_filter filter, xevent_callback func)
 {
-	xevent& evt = xeventpool[fd];
+	if (fd >= MAX_EVENT_POOL){
+		LOG_E("fd exceed max event pool size(%d >= %d)", fd, MAX_EVENT_POOL);
+		return -1;
+	}
+	xevent& evt = xeventpool()[fd];
 	// only update func
 	if (evt.funcs[filter].filter != -1){
 		evt.funcs[filter].func = func;
@@ -111,7 +132,7 @@ int regxeventfunc(int fd, xevent_filter filter, xevent_callback func)
 };
 int unregxevent(int fd, xevent_filter filter)
 {
-	xevent& evt = xeventpool[fd];
+	xevent& evt = xeventpool()[fd];
 	if (evt.fd == -1 || evt.funcs[filter].filter == -1){
 		LOG_D("remove fd-filter(%d-%d) event not exist", fd, filter);
 		return 0;
@@ -127,7 +148,7 @@ int unregxevent(int fd, xevent_filter filter)
 };
 int unregxevent(int fd)
 {
-	xevent& evt = xeventpool[fd];
+	xevent& evt = xeventpool()[fd];
 	if (evt.fd == -1){
 		LOG_D("remove fd(%d) event not exist", fd);
 		return 0;
@@ -145,7 +166,7 @@ int unregxevent(int fd)
 	// remove event
 	kevent(_epfd, kevts, nums, NULL, 0, NULL);
 	_fdnums -= nums;
-	LOG_D("unregevent-fd: fd-%d, nums-%d, left-%d", fd, nums, _fdnums);
+	LOG_R("unregevent-fd: fd-%d, nums-%d, left-%d", fd, nums, _fdnums);
 	return 0;
 }
 int call_event_func(struct kevent& kevt)
@@ -175,20 +196,6 @@ int dispatchxevent(int timeoutsecond)
 	return 0;
 };
 
-const char* xfilterdesc(int xfilter){
-	static char _desc[64];
-	switch(xfilter){
-	case xfilter_read:
-		return "READ";
-	case xfilter_write:
-		return "WRITE";
-	case xfilter_error:
-		return "ERROR";
-	default:
-		sprintf(_desc, "ev-%d", xfilter);
-	}
-	return _desc;
-}
-const char* evdesc(int flag){
+const char* evfiltdesc(int flag){
 	return xfilterdesc(kfilter2xfilter(flag));
 }
