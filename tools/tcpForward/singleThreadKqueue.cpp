@@ -3,10 +3,6 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
-
-//#include <sys/epoll.h>
-#include <sys/event.h>
-
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -17,7 +13,6 @@
 #include "sockproc.h"
 
 #define BUFFER_LENGTH 65536
-#define TIME_OUT 30
 #define TIME_OUT_MSG 30
 #include "kqueueproc.h"
 
@@ -26,10 +21,21 @@ struct sockaddr_in fserv;
 unsigned int clilen = sizeof(fserv);
 char buffer[BUFFER_LENGTH];
 unsigned char encodekey = 0xA9;
-int fdmap[2048];
+tsock tsocks[2048];
+
+// accept connection
+int cb_proc_accept(int, int);
+// remote conn ok
+int cb_proc_conn(int, int);
+// recv from fd and send to dest
+int cb_proc_recv(int, int);
+// send msg to fd
+int cb_proc_send(int, int);
+// proc except
+int cb_proc_error(int, int);
 
 // 0-Succ
-// 1-Close
+// 1-Wait remote connect
 // -1-Error Occure
 int proc_accept(int srvfd, int& clifd, int& remote)
 {
@@ -44,69 +50,103 @@ int proc_accept(int srvfd, int& clifd, int& remote)
        close(clifd);
        return -1;
     }
+	setnonblock(clifd);
+	setnonblock(remote);
     if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0){
-       close(clifd);
-       close(remote);
-       LOG_R("connect to forward server failed");
-       return -1;
+       if (errno == EINPROGRESS){
+	      return 1;	
+	   }
+	   else{
+	   	  close(clifd);
+       	  close(remote);
+       	  LOG_R("connect to forward server failed");
+       	  return -1;
+	   }
     } 
-    LOG_I("connection [%d-%d] established", clifd, remote); 
+    LOG_R("connection [%d-%d] established", clifd, remote); 
     return 0;
 }
-int cb_proc_recv(int, int);
 int cb_proc_accept(int fd, int filter)
 {
 	LOG_I("process accept: %d", fd);
 	int clifd = -1, remfd = -1;
 	int proc_result = proc_accept(fd, clifd, remfd);
 	if (proc_result == 0){
-        regxeventfunc(clifd, xfilter_read, cb_proc_recv);
-		regxeventfunc(remfd, xfilter_read, cb_proc_recv);
-        fdmap[clifd]=remfd;
-		fdmap[remfd]=clifd;
+        regxevent(clifd, xfilter_read, cb_proc_recv);
+		regxevent(remfd, xfilter_read, cb_proc_recv);
+		//regxevent(clifd, xfilter_error, cb_proc_error);
+		//regxevent(remfd, xfilter_error, cb_proc_error);
+		tsocks[clifd] = tsock(clifd, remfd, sock_client);
+		tsocks[remfd] = tsock(remfd, clifd, sock_remote);
     }
-    else {
+    else if(proc_result == 1){
+		tsocks[clifd] = tsock(clifd, remfd, sock_client);
+		tsocks[remfd] = tsock(remfd, clifd, sock_remote);
+		regxevent(remfd, xfilter_write, cb_proc_conn);
+		//regxevent(remfd, xfilter_error, cb_proc_error);
+		//regxevent(clifd, xfilter_error, cb_proc_error);
+	}
+	else{
         LOG_E("accept return abnormal: %d", proc_result);
     }
 	return proc_result;
 }
-int proc_recv(int curr, int remote, int key)
+int cb_proc_conn(int fd, int filter)
 {
-    int n = 0;
-    LOG_I("proc recv param: %d,%d,%d", curr, remote, key);
-    if ((n = recv(curr, buffer, BUFFER_LENGTH, 0)) < 0)
-    {
-        LOG_E("---recv error[%d] occur, ignored!", errno);
-        return -1;
-    }
-    LOG_I("recv from sock:%d, length:%d", curr, n);
-    if (n == 0)
-    {
-       LOG_R("close by client");
-       return 1;
-    }
-    buffer2hex(buffer, n>20?20:n);
-    encodebuffer((unsigned char*)buffer, n, key);
-
-    if (send(remote, buffer, n, 0) != n)
-    {
-       LOG_E("---send error[%d] occur, ignored!", errno);
-       return -1;
-    }
-    return 0;
+	LOG_I("proc conn: %d", fd);
+	int dstfd = tsocks[fd].dstfd;
+	unregxevent(fd, xfilter_write);
+	regxevent(fd, xfilter_read, cb_proc_recv);
+	regxevent(dstfd, xfilter_read, cb_proc_recv);
+	LOG_R("connection [%d-%d] established", dstfd, fd);
+	return 0;
+}
+int cb_proc_close(int fd, int filter)
+{
+	int dstfd = tsocks[fd].dstfd;
+	if (fd != -1){
+		unregxevent(fd); close(fd);
+	}
+	if (dstfd != -1){
+		unregxevent(dstfd);close(dstfd);
+	}
+	tsocks[fd].reset();
+	tsocks[dstfd].reset();
+	LOG_R("connection [%d-%d] closed.", fd, dstfd);
+	return 0;
+}
+int cb_proc_error(int fd, int filter)
+{
+	LOG_R("proc error: %d", fd);
+	return cb_proc_close(fd, filter);
 }
 int cb_proc_recv(int fd, int filter)
 {
-	LOG_I("process recv: %d", fd);
-	int dstfd = fdmap[fd];
-    int proc_result = proc_recv(fd, dstfd, encodekey);
-    if (proc_result != 0){
-        unregxevent(fd);
-		close(fd);
-		unregxevent(dstfd);
-		close(dstfd);
+	//LOG_I("process recv: %d", fd);
+    int proc_result = recvsockandsendencoded(tsocks[fd], encodekey);
+    int dstfd = tsocks[fd].dstfd;;
+	if (proc_result < 0){
+		cb_proc_close(fd, filter);
     }
-	return 0;
+	else if (proc_result == 1){
+		unregxevent(fd, xfilter_read);
+		regxevent(dstfd, xfilter_write, cb_proc_send);
+	}
+	return proc_result;
+}
+int cb_proc_send(int fd, int filter)
+{
+	LOG_I("proc send: %d", fd);
+	int proc_result = sendsock(tsocks[fd]);
+	int dstfd = tsocks[fd].dstfd;
+	if (proc_result < 0){
+		cb_proc_close(fd, filter);
+	}
+	else if (proc_result == 0){
+		unregxevent(fd, xfilter_write);
+		regxevent(dstfd, xfilter_read, cb_proc_recv);
+	}
+	return proc_result;
 }
 int main(int argc, char **argv)
 {
@@ -146,7 +186,7 @@ int main(int argc, char **argv)
     // init xevent
 	initxevent();
     // add sock to epoll
-	regxeventfunc(srvfd, xfilter_read, cb_proc_accept);
+	regxevent(srvfd, xfilter_read, cb_proc_accept);
 
     while(true){
 		dispatchxevent(TIME_OUT_MSG);	
