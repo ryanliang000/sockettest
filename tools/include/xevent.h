@@ -51,7 +51,7 @@ enum xevent_filter{
 	xfilter_read = 0,
 	xfilter_write= 1,
 	xfilter_error= 2,
-	xfilter_count= 3
+    xfilter_count= 3
 };
 enum xevent_action{
 	xaction_add = 0,
@@ -163,11 +163,13 @@ xevent_callback geteventcallback(struct kevent& kevt)
 {
     return geteventcallback(kevt.ident, kevt.filter);
 }
-#define initxevent() {\
-    _epfd = kqueue();\
-    if (_epfd == -1){\
-        err_sys("init xevent with kqueue error");\
-    }\
+int initxevent() {
+    _epfd = kqueue();
+    if (_epfd == -1){
+        LOG_E("init xevent with kqueue error");
+        return -1;
+    }
+    return 0;
 }
 const char* xfilterdesc(int xfilter);
 // 0-Succ, -1-failed
@@ -265,7 +267,7 @@ const char* evfiltdesc(int flag){
 }
 
 
-#elif defined(__linux__) || define(__unix__) || defined(_POSIX_VERSION)
+#elif defined(__linux__) || defined(__unix__) || defined(_POSIX_VERSION)
 #include <sys/epoll.h>
 int xfilter2kfilter(int xfilter)
 {
@@ -295,12 +297,12 @@ xevent_filter kfilter2xfilter(int kfilter){
 	return xfilter_error;
 }
 // build epoll event 
-epoll_event buildkevent(xevent& evt)
+struct epoll_event buildkevent(xevent& evt)
 {
-    epoll_event epollevt;
+    struct epoll_event epollevt;
 	epollevt.data.fd = evt.fd;
 	epollevt.events = 0;
-	if (evt.fd == -1) return evpollevt;
+	if (evt.fd == -1) return epollevt;
     for (int i=0; i<xfilter_count; i++){
 		if (evt.funcs[i].filter != -1){
 			 epollevt.events|= xfilter2kfilter(evt.funcs[i].filter); 
@@ -311,8 +313,10 @@ epoll_event buildkevent(xevent& evt)
 int initxevent() {
 	_epfd = epoll_create(MAX_EVENT_POOL);
 	if (_epfd == -1){
-		err_sys("init xevent with epoll error");
+		LOG_E("init xevent with epoll error");
+        return -1;
 	}
+    return 0;
 }
 
 // 0-Succ, -1-failed
@@ -334,7 +338,7 @@ int regxevent(int fd, xevent_filter filter, xevent_callback func)
 	evt.funcs[filter].filter = filter;
 	evt.funcs[filter].func = func;
 	// add event
-	epoll_event epollevt = buildkevent(evt);
+	struct epoll_event epollevt = buildkevent(evt);
 	if (valid)
 		epoll_ctl(_epfd, EPOLL_CTL_MOD, fd, &epollevt);	
 	else
@@ -354,7 +358,7 @@ int unregxevent(int fd, xevent_filter filter)
 	evt.funcs[filter].reset();
 	// remove event
     bool valid = evt.valid();
-	epoll_event epollevt = buildkevent(evt);
+	struct epoll_event epollevt = buildkevent(evt);
 	if (valid){
         epoll_ctl(_epfd, EPOLL_CTL_MOD, fd, &epollevt);
     }
@@ -372,18 +376,16 @@ int unregxevent(int fd)
 		LOG_D("remove fd(%d) event not exist", fd);
 		return 0;
 	}
-	struct kevent kevts[xfilter_count];
 	int nums = 0;
 	// modify data
 	for (int i=0; i<xfilter_count; i++){
 		if (evt.funcs[i].filter != -1){
-			kevts[nums++] = buildkevent(fd, evt.funcs[i].filter, xaction_del);
 			evt.funcs[i].reset();
 		}
 	}
 	evt.fd = -1;
 	// remove event
-    epoll_event epollevt = buildkevent(evt);
+    struct epoll_event epollevt = buildkevent(evt);
 	epoll_ctl(_epfd, EPOLL_CTL_DEL, fd, &epollevt);
 	_fdnums -= nums;
 	LOG_R("unregevent-fd: fd-%d, nums-%d, left-%d", fd, nums, _fdnums);
@@ -401,10 +403,10 @@ int call_event_func(struct epoll_event& evt)
 		if (xevt.funcs[i].filter == -1)
 			continue;
 		int kfilter = xfilter2kfilter(xevt.funcs[i].filter);
-		if (kfilter & evt.event){
+		if (kfilter & evt.events){
 			if (xevt.funcs[i].func == NULL) 
 				continue;
-			int rt = func(fd, xevt.funcs[i].filter);
+			int rt = xevt.funcs[i].func(fd, xevt.funcs[i].filter);
 			if (rt < 0) 
 				return rt;
 		}
