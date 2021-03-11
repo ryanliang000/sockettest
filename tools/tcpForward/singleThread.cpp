@@ -3,120 +3,156 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
-#include <sys/epoll.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "xevent.h"
 #include "myerr.h"
 #include "log.h"
+#include "sockproc.h"
+
 #define BUFFER_LENGTH 65536
-#define TIME_OUT 30
-#define TIME_OUT_MSG 15
-#define MAX_EVENT 256
+#define TIME_OUT_MSG 30
 
-struct sockaddr_in  cli, fserv;
-unsigned int clilen = sizeof(cli);
+
+struct sockaddr_in fserv;
+unsigned int clilen = sizeof(fserv);
 char buffer[BUFFER_LENGTH];
+unsigned char encodekey = 0xA9;
+tsock tsocks[2048];
 
-void showmsg(char *buffer, int len)
-{
-    for (int i=0; i<len; i++)
-       LOG_I("%02x ", (unsigned char)(buffer[i]));
-}
-void encodebuffer(unsigned char* buffer, int len, unsigned char key)
-{
-   for (int i=0; i<len; i++)
-      buffer[i] = buffer[i] ^ key;
-}
-struct timeval tv;
-void settimeout(int sock, int second, int flag = -1)
-{
-   tv.tv_sec = second;
-   tv.tv_usec = 0;
-   if (flag != -1){
-       setsockopt(sock, SOL_SOCKET, flag, (const char*)&tv, sizeof(timeval));
-       return;
-   }
-   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(timeval));
-   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(timeval));
-}
-#define setsendtimeout(sock, second) settimeout(sock, second, SO_SNDTIMEO)
-void setnonblock(int fd)
-{
-  int flag = fcntl(fd, F_GETFL);
-  fcntl(fd, F_SETFL, flag | O_NONBLOCK);
-}
+// accept connection
+int cb_proc_accept(int, int);
+// remote conn ok
+int cb_proc_conn(int, int);
+// recv from fd and send to dest
+int cb_proc_recv(int, int);
+// send msg to fd
+int cb_proc_send(int, int);
+// proc except
+int cb_proc_error(int, int);
 
-struct sockinfo{
-   int current;
-   int remote;
-   int key;
-   int (*ptr)(int, int&, int&);
-};
 // 0-Succ
-// 1-Close
+// 1-Wait remote connect
 // -1-Error Occure
 int proc_accept(int srvfd, int& clifd, int& remote)
 {
-    if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0)
-    {
+    LOG_R("proc accept");
+	struct sockaddr_in cli;
+	if ((clifd = accept(srvfd, (sockaddr*)&cli, &clilen)) < 0){
         LOG_E("accept error[%d], ignored!", errno);
         return -1;
     }
-    if ((remote = socket(PF_INET, SOCK_STREAM, 0)) < 0)
-    {
+    if ((remote = socket(PF_INET, SOCK_STREAM, 0)) < 0){
        LOG_E("forward socket return failed");
        close(clifd);
        return -1;
     }
-    if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0)
-    {
-       close(clifd);
-       close(remote);
-       LOG_R("connect to forward server failed");
-       return -1;
+	setnonblock(clifd);
+	setnonblock(remote);
+    if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0){
+       if (errno == EINPROGRESS){
+	      return 1;	
+	   }
+	   else{
+	   	  close(clifd);
+       	  close(remote);
+       	  LOG_R("connect to forward server failed");
+       	  return -1;
+	   }
     } 
-    LOG_I("connection [%d-%d] established", clifd, remote); 
+    LOG_R("connection [%d-%d] established", clifd, remote); 
     return 0;
 }
-int proc_recv(int curr, int remote, int key)
+int cb_proc_accept(int fd, int filter)
 {
-    int n = 0;
-    LOG_I("proc recv param: %d,%d,%d", curr, remote, key);
-    if ((n = recv(curr, buffer, BUFFER_LENGTH, 0)) < 0)
-    {
-        LOG_E("---recv error[%d] occur, ignored!", errno);
-        return -1;
+	LOG_I("process accept: %d", fd);
+	int clifd = -1, remfd = -1;
+	int proc_result = proc_accept(fd, clifd, remfd);
+	if (proc_result == 0){
+        regxevent(clifd, xfilter_read, cb_proc_recv);
+		regxevent(remfd, xfilter_read, cb_proc_recv);
+		//regxevent(clifd, xfilter_error, cb_proc_error);
+		//regxevent(remfd, xfilter_error, cb_proc_error);
+		tsocks[clifd] = tsock(clifd, remfd, sock_client);
+		tsocks[remfd] = tsock(remfd, clifd, sock_remote);
     }
-    LOG_I("recv from sock:%d, length:%d", curr, n);
-    if (n == 0)
-    {
-       LOG_R("close by client");
-       return 1;
+    else if(proc_result == 1){
+		tsocks[clifd] = tsock(clifd, remfd, sock_client);
+		tsocks[remfd] = tsock(remfd, clifd, sock_remote);
+		regxevent(remfd, xfilter_write, cb_proc_conn);
+		//regxevent(remfd, xfilter_error, cb_proc_error);
+		//regxevent(clifd, xfilter_error, cb_proc_error);
+	}
+	else{
+        LOG_E("accept return abnormal: %d", proc_result);
     }
-    //showmsg(buffer, n>20?20:n);
-    encodebuffer((unsigned char*)buffer, n, key);
-
-    if (send(remote, buffer, n, 0) != n)
-    {
-       LOG_E("---send error[%d] occur, ignored!", errno);
-       return -1;
-    }
-    return 0;
+	return proc_result;
 }
-
-void setnonblock(int fd)
+int cb_proc_conn(int fd, int filter)
 {
-  int flag = fcntl(fd, F_GETFL);
-  fcntl(fd, F_SETFL, flag | O_NONBLOCK);
+	LOG_I("proc conn: %d", fd);
+	int dstfd = tsocks[fd].dstfd;
+	unregxevent(fd, xfilter_write);
+	regxevent(fd, xfilter_read, cb_proc_recv);
+	regxevent(dstfd, xfilter_read, cb_proc_recv);
+	LOG_R("connection [%d-%d] established", dstfd, fd);
+	return 0;
+}
+int cb_proc_close(int fd, int filter)
+{
+	int dstfd = tsocks[fd].dstfd;
+	if (fd != -1){
+		unregxevent(fd); close(fd);
+	}
+	if (dstfd != -1){
+		unregxevent(dstfd);close(dstfd);
+	}
+	tsocks[fd].reset();
+	tsocks[dstfd].reset();
+	LOG_R("connection [%d-%d] closed.", fd, dstfd);
+	return 0;
+}
+int cb_proc_error(int fd, int filter)
+{
+	LOG_R("proc error: %d", fd);
+	return cb_proc_close(fd, filter);
+}
+int cb_proc_recv(int fd, int filter)
+{
+	//LOG_I("process recv: %d", fd);
+    int proc_result = recvsockandsendencoded(tsocks[fd], encodekey);
+    int dstfd = tsocks[fd].dstfd;;
+	if (proc_result < 0){
+		cb_proc_close(fd, filter);
+    }
+	else if (proc_result == 1){
+		unregxevent(fd, xfilter_read);
+		regxevent(dstfd, xfilter_write, cb_proc_send);
+	}
+	return proc_result;
+}
+int cb_proc_send(int fd, int filter)
+{
+	LOG_I("proc send: %d", fd);
+	int proc_result = sendsock(tsocks[fd]);
+	int dstfd = tsocks[fd].dstfd;
+	if (proc_result < 0){
+		cb_proc_close(fd, filter);
+	}
+	else if (proc_result == 0){
+		unregxevent(fd, xfilter_write);
+		regxevent(dstfd, xfilter_read, cb_proc_recv);
+	}
+	return proc_result;
 }
 int main(int argc, char **argv)
 {
-    struct sockaddr_in serv;
+    signal(SIGPIPE, procperr);
+	struct sockaddr_in serv;
     int srvfd;
-    unsigned char key = 0;
     if (argc < 5)
     {
         err_quit( "Usage: %s forwardip forwardport servport encodekey\n", argv[0]);
@@ -133,10 +169,8 @@ int main(int argc, char **argv)
     fserv.sin_family = AF_INET;
     fserv.sin_addr.s_addr = inet_addr(argv[1]);
     fserv.sin_port = htons(atoi(argv[2]));
-    key = atoi(argv[4]);
-    int opt=1;
-    setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    setsockopt(srvfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+    encodekey = atoi(argv[4]);
+	setsockreuse(srvfd);
     if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
     {
         err_sys("bind error");
@@ -145,72 +179,17 @@ int main(int argc, char **argv)
     {
         err_sys("listen error");
     }
-    LOG_R("start listen ... ");
+    LOG_R("start listen port %s ...", argv[3]);
     int forkid = -1;
-    unsigned int clilen = sizeof(cli);
     signal(SIGCHLD,SIG_IGN);
 
-    // create epoll
-    int epfd = epoll_create(MAX_EVENT);
-    if (epfd == -1){
-        err_sys("epoll create error");
-    }
+    // init xevent
+	initxevent();
     // add sock to epoll
-    struct epoll_event srvev, evpool[2048], events[MAX_EVENT];
-    int fdmap[2048];
-    srvev.events = EPOLLIN;
-    srvev.data.fd = srvfd;
-    if (epoll_ctl(epfd, EPOLL_CTL_ADD, srvfd, &srvev) == -1){
-        err_sys("epoll ctrl add fd error");
-    }
-    int nfds = -1;
-    int proc_result = 0;
-    int client = -1;
-    int remote = -1;
-	struct timeval tv;
-	tv.tv_sec = TIME_OUT_MSG;
-	tv.tv_usec = 0;
-    for (;;){
-        nfds = epoll_wait(epfd, events, MAX_EVENT, TIME_OUT);
-        if (nfds == -1){
-            LOG_E("epoll wait error[%d], ignored!", errno);
-            sleep(1);
-            continue;
-        }
-        for (int i=0; i<nfds; i++){
-            struct epoll_event curr = events[i];
-            LOG_I("epoll event %d, fd: %d, events: %d", i, curr.data.fd, curr.events);
-            if (curr.data.fd == srvfd){
-                LOG_I("process accetp: %d", srvfd);
-                proc_result = proc_accept(srvfd, client, remote);
-                if (proc_result == 0){
-                    evpool[client].data.fd = client;
-                    fdmap[client] = remote;
-                    fdmap[remote] = client;
-		    setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
-		    setsockopt(remote, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
-                    evpool[client].events = EPOLLIN;
-                    epoll_ctl(epfd, EPOLL_CTL_ADD, client, &evpool[client]);
-                    evpool[remote].data.fd = remote;
-                    evpool[remote].events = EPOLLIN;
-                    epoll_ctl(epfd, EPOLL_CTL_ADD, remote, &evpool[remote]);
-                }
-                else {
-                    LOG_E("accept return abnormal: %d", proc_result);
-                }
-            }
-            else
-            {
-                LOG_I("process recv: %d", curr.data.fd);
-                proc_result = proc_recv(curr.data.fd, fdmap[curr.data.fd], key); 
-                if (proc_result != 0){
-                    epoll_ctl(epfd, EPOLL_CTL_DEL, curr.data.fd, NULL);
-                    epoll_ctl(epfd, EPOLL_CTL_DEL, fdmap[curr.data.fd], NULL);
-					close(curr.data.fd);
-					close(fdmap[curr.data.fd]);
-                }
-            }
-        }
-    }
-    return 0;
+	regxevent(srvfd, xfilter_read, cb_proc_accept);
+
+    while(true){
+		dispatchxevent(TIME_OUT_MSG);	
+	}
+	return -1;
 }
