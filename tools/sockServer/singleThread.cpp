@@ -186,7 +186,7 @@ int proc_sock2(int clifd, int remote, int key)
 {// recv 5,1..host,port reply 5,0,0,1,ip,port
     tbuff& tbuf = tsocks[clifd].tbuf; 
 	if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 10){
-        LOG_E("proc_sock2:receive start sock from client failed, len:%d", tbuf.recvn);
+        LOG_E("proc_sock2: receive from client failed, len:%d", tbuf.recvn);
         return -1;
     }
     encodebuffer((unsigned char*)tbuf.buff, tbuf.recvn,key);
@@ -233,7 +233,7 @@ int proc_sock2_buff(int clifd, int remote, int key)
 	// connect to remote
     int ret = connect(remote, (sockaddr*)(&fserv), sizeof(fserv));
     if (ret != 0){
-        LOG_E("proc_sock_:fd[%d-%d] forward connect failed[%d-%s]", clifd, remote, errno, strerror(errno));
+        LOG_E("proc_sock2:fd[%d-%d] forward remote connect failed[%d-%s]", clifd, remote, errno, strerror(errno));
         return -1;
     }
     LOG_I("conn to remote succ");
