@@ -180,7 +180,6 @@ int main(int argc, char **argv)
         err_sys("listen error");
     }
     LOG_R("start listen port %s ...", argv[3]);
-    int forkid = -1;
     signal(SIGCHLD,SIG_IGN);
 
     // init xevent
