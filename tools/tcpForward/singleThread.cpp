@@ -12,7 +12,7 @@
 #include "myerr.h"
 #include "log.h"
 #include "sockproc.h"
-
+#include "pthread.h"
 #define BUFFER_LENGTH 65536
 #define TIME_OUT_MSG 30
 
@@ -22,6 +22,7 @@ unsigned int clilen = sizeof(fserv);
 char buffer[BUFFER_LENGTH];
 unsigned char encodekey = 0xA9;
 tsock tsocks[2048];
+pthread_t threads[1024];
 
 // accept connection
 int cb_proc_accept(int, int);
@@ -50,44 +51,45 @@ int proc_accept(int srvfd, int& clifd, int& remote)
        close(clifd);
        return -1;
     }
-	setnonblock(clifd);
-	setnonblock(remote);
-    if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0){
-       if (errno == EINPROGRESS){
-	      return 1;	
-	   }
-	   else{
-	   	  close(clifd);
-       	  close(remote);
-       	  LOG_R("connect to forward server failed");
-       	  return -1;
-	   }
-    } 
-    LOG_R("connection [%d-%d] established", clifd, remote); 
-    return 0;
+	LOG_R("start connection message[%d-%d]", clifd, remote);
+	return 0;
 }
+void* connect_remote(void* pArg){
+	tsock* p = (tsock*)pArg;
+    int clifd = p->fd;
+    int remote = p->dstfd;
+	if (connect(remote, (sockaddr*)(&fserv), sizeof(fserv)) < 0){
+		tsocks[clifd].reset();
+        tsocks[remote].reset();
+		close(clifd);
+		close(remote);
+        LOG_R("connect to forward server failed");
+        return NULL;
+    } 
+    regxevent(clifd, xfilter_read, cb_proc_recv);
+	regxevent(remote, xfilter_read, cb_proc_recv);
+	LOG_R("connection [%d-%d] established by connremote", clifd, remote);
+    return p;
+}
+
 int cb_proc_accept(int fd, int filter)
 {
 	LOG_I("process accept: %d", fd);
 	int clifd = -1, remfd = -1;
 	int proc_result = proc_accept(fd, clifd, remfd);
 	if (proc_result == 0){
-        regxevent(clifd, xfilter_read, cb_proc_recv);
-		regxevent(remfd, xfilter_read, cb_proc_recv);
-		//regxevent(clifd, xfilter_error, cb_proc_error);
-		//regxevent(remfd, xfilter_error, cb_proc_error);
 		tsocks[clifd] = tsock(clifd, remfd, sock_client);
 		tsocks[remfd] = tsock(remfd, clifd, sock_remote);
-    }
-    else if(proc_result == 1){
-		tsocks[clifd] = tsock(clifd, remfd, sock_client);
-		tsocks[remfd] = tsock(remfd, clifd, sock_remote);
-		regxevent(remfd, xfilter_write, cb_proc_conn);
-		//regxevent(remfd, xfilter_error, cb_proc_error);
-		//regxevent(clifd, xfilter_error, cb_proc_error);
-	}
-	else{
-        LOG_E("accept return abnormal: %d", proc_result);
+		tsock* pArg = &tsocks[clifd];
+		// start a thread communite with client
+		if (pthread_create(&threads[clifd], NULL, connect_remote, (void*)pArg)){
+		    LOG_R("pthread create failed by accept");
+			tsocks[clifd].reset();
+			tsocks[remfd].reset();
+			close(clifd);
+			close(remfd);
+			return -1;
+		}
     }
 	return proc_result;
 }
