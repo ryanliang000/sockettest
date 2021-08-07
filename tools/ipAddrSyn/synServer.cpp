@@ -18,7 +18,9 @@ int main(int argc, char **argv)
     unsigned int clilen;
     
     // share memory bettwen process
-    struct sockaddr_in *pLocal = (sockaddr_in*)mmap(0, sizeof(sockaddr_in), PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    struct sockaddr_in *pLocal = (sockaddr_in*)mmap(0, sizeof(sockaddr_in)+4, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0);
+    int *pFlag = (int*)(pLocal+1);
+    *pFlag = 0;
     struct sockaddr_in &local = *pLocal;
 
     if (argc < 2)
@@ -92,26 +94,38 @@ int main(int argc, char **argv)
         request[REQUEST-1]='\0';
         fprintf(stdout, "[%d]recv: %s\n", num, request);
         fprintf(stdout, "[%d]reply addr: %s:%d\n", num, inet_ntoa(cli.sin_addr), htons(cli.sin_port));
-	if (request[0] == 'u'){
-	   // update message
-	   local = cli;
+	    if (request[0] == 'u'){
+	       // update message
+	       local = cli;
            sprintf(reply, "%s", inet_ntoa(local.sin_addr));
-	}
-	else if (request[0] == 'g')
-	{
-	   // get address message
+           *pFlag = 1;
+	    }
+	    else if (request[0] == 'g')
+	    {
+	       // get address message
            sprintf(reply, "%s", inet_ntoa(local.sin_addr));
-	}
-        else if (request[0] == 'G' && request[5] == 'i' && request[6] == 'p')
+	    }
+        else if (memcmp(request, "GET", 3) == 0)
         {
-           sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type:text/html\r\nConnection:close\r\n\r\n<h1>%s</h1>", inet_ntoa(local.sin_addr));
+           if (memcmp(request + 4, "/ip", 3) == 0 || memcmp(request+4, "/get", 4) == 0){ 
+              sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type:text/html\r\nConnection:close\r\n\r\n");
+              if (*pFlag == 1)
+                  sprintf(reply+strlen(reply), "<h1>stored-%s</h1>", inet_ntoa(local.sin_addr));
+              sprintf(reply+strlen(reply), "<h1>local-%s</h1>", inet_ntoa(cli.sin_addr));
+           }
+           else if (memcmp(request + 4, "/set", 4) == 0 || memcmp(request+4, "/store", 6) == 0){
+              sprintf(reply, "HTTP/1.1 200 OK\r\nContent-Type:text/html\r\nConnection:close\r\n\r\n");
+              local = cli;
+              *pFlag = 1;
+              sprintf(reply+strlen(reply), "<h1>store-%s</h1>", inet_ntoa(local.sin_addr));
+           }
         }
-	else
-	{
-	   fprintf(stdout, "[%d]request not match any condition.\n", num, request);
+	    else
+	    {
+	       fprintf(stdout, "[%d]request not match any condition.\n", num, request);
            close(clifd);
            break;
-	}
+	    }
         reply[REPLY-1]='\0';
         fprintf(stdout, "[%d]send: %s\n", num, reply);
         if (send(clifd, reply, strlen(reply) + 1, 0) != strlen(reply) + 1)
