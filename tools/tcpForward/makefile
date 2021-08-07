@@ -1,6 +1,6 @@
-all : single
-single : singleThread.cpp
-	gcc -o single singleThread.cpp -I../include -lpthread
+all : single.out
+single.out : singleThread.cpp
+	gcc -DRUN -O2 -o single.out singleThread.cpp -I../include -lpthread
 
 clean : 
-	rm single
+	rm single.out
