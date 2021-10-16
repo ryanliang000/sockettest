@@ -401,7 +401,7 @@ int call_event_func(struct epoll_event &evt) {
 struct epoll_event _events[MAX_EVENT_RECV];
 // 0-succ, -1-failed
 int dispatchxevent(int timeoutsecond) {
-  int nfds = epoll_wait(_epfd, _events, MAX_EVENT_RECV, timeoutsecond);
+  int nfds = epoll_wait(_epfd, _events, MAX_EVENT_RECV, timeoutsecond * 1000);
   if (nfds < 0) {
     LOG_E("epoll wait error[%d], ignored!", errno);
     return -1;
