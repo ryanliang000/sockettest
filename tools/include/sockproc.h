@@ -120,8 +120,7 @@ int recvsockandsendencoded(tsock &info, int key) {
       LOG_E("first recv msg empty(%d->%d), close conn", fd, dst);
       return -1;
     }
-    LOG_D("recvandsend: (%d->%d) rt-%d len-%d n-%d", fd, dst, rt, tbuf.recvn,
-          n);
+    LOG_D("recvandsendencode: (%d->%d) rt-%d len-%d n-%d", fd, dst, rt, tbuf.recvn, n);
     if (rt == 1)
       return 0;
     encodebuffer(tbuf.buff, tbuf.recvn, key);

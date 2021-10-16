@@ -41,7 +41,7 @@
 #define LOG(fd, title, ...)                                                    \
   fprintf(fd, title);                                                          \
   fprintf(fd, __VA_ARGS__);                                                    \
-  fprintf(fd, " (line:%d)\n", __LINE__);
+  fprintf(fd, " (%s:%d)\n", __FILE__, __LINE__);
 
 #ifdef REL
 #define LOG_E(...) LOG(stderr, "[ERR]", __VA_ARGS__)
