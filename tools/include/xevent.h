@@ -78,6 +78,13 @@ struct xevent {
     }
     return false;
   }
+  char* desc(){
+    static char _desc[64] = {0};
+    sprintf(_desc, "fd=%d, filters:", fd);
+    for (int i=0; i<xfilter_count; i++)
+      sprintf(_desc + strlen(_desc), "%d ", funcs[i].filter);
+    return _desc;  
+  }
 };
 struct xevent _xeventpool[MAX_EVENT_POOL];
 xevent *xeventpool() { return _xeventpool; }
@@ -198,8 +205,8 @@ int unregxevent(int fd, xevent_filter filter) {
   // remove event
   struct kevent kevt = buildkevent(fd, filter, xaction_del);
   kevent(_epfd, &kevt, 1, NULL, 0, NULL);
-  LOG_D("unregevent: fd-%d, filter-%s", fd, xfilterdesc(filter));
   _fdnums--;
+  LOG_D("unregevent: fd-%d, filter-%s, left-%d", fd, xfilterdesc(filter), _fdnums);
   return 0;
 };
 int unregxevent(int fd) {
@@ -213,8 +220,9 @@ int unregxevent(int fd) {
   // modify data
   for (int i = 0; i < xfilter_count; i++) {
     if (evt.funcs[i].filter != -1) {
-      kevts[nums++] = buildkevent(fd, evt.funcs[i].filter, xaction_del);
+      kevts[nums] = buildkevent(fd, evt.funcs[i].filter, xaction_del);
       evt.funcs[i].reset();
+      nums++;
     }
   }
   evt.fd = -1;
@@ -343,8 +351,8 @@ int unregxevent(int fd, xevent_filter filter) {
   } else {
     epoll_ctl(_epfd, EPOLL_CTL_DEL, fd, &epollevt);
   }
-  LOG_D("unregevent: fd-%d, filter-%s", fd, xfilterdesc(filter));
   _fdnums--;
+  LOG_D("unregevent: fd-%d, filter-%s, left-%d", fd, xfilterdesc(filter), _fdnums);
   return 0;
 };
 int unregxevent(int fd) {
@@ -358,6 +366,7 @@ int unregxevent(int fd) {
   for (int i = 0; i < xfilter_count; i++) {
     if (evt.funcs[i].filter != -1) {
       evt.funcs[i].reset();
+      nums++;
     }
   }
   evt.fd = -1;
