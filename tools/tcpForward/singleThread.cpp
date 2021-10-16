@@ -55,6 +55,7 @@ int proc_accept(int srvfd, int& clifd, int& remote)
 	return 0;
 }
 void* connect_remote(void* pArg){
+	pthread_detach(pthread_self());
 	tsock* p = (tsock*)pArg;
     int clifd = p->fd;
     int remote = p->dstfd;
@@ -66,10 +67,11 @@ void* connect_remote(void* pArg){
         LOG_R("connect to forward server failed");
         return NULL;
     } 
-    regxevent(clifd, xfilter_read, cb_proc_recv);
-	regxevent(remote, xfilter_read, cb_proc_recv);
-	LOG_R("connection [%d-%d] established by connremote", clifd, remote);
-    return p;
+   regxevent(clifd, xfilter_read, cb_proc_recv);
+   regxevent(remote, xfilter_read, cb_proc_recv);
+   LOG_R("connection [%d-%d] established by connremote", clifd, remote);
+   pthread_exit(0); 
+   return p;
 }
 
 int cb_proc_accept(int fd, int filter)
