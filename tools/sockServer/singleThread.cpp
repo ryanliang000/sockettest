@@ -58,7 +58,8 @@ int proc_accept(int srvfd, int& clifd, int& remote)
 int proc_sock(int clifd, int remote, int key);
 void* sock_message(void* pArg)
 {
-	tsock* p = (tsock*)pArg;
+	pthread_detach(pthread_self());
+    tsock* p = (tsock*)pArg;
     int clifd = p->fd;
 	int remote = p->dstfd;
 	if (proc_sock(clifd, remote, encodekey) == 0){
@@ -73,6 +74,7 @@ void* sock_message(void* pArg)
 		close(remote);
 		LOG_R("connection [%d-%d] release", clifd, remote);
 	}
+    pthread_exit(0);
 	return NULL;
 }
 int cb_proc_accept(int fd, int filter)
@@ -86,7 +88,8 @@ int cb_proc_accept(int fd, int filter)
 		// start a thread communicate with client
 		tsock* pArg = &tsocks[clifd];
 		if (pthread_create(&threads[clifd], NULL, sock_message, (void*)pArg)){
-			close(clifd);
+			LOG_E("pthread create failed!");
+            close(clifd);
 			close(remfd);
 		}
     }
