@@ -80,7 +80,8 @@ int cb_proc_accept(int fd, int filter)
 	int clifd = -1, remfd = -1;
 	int proc_result = proc_accept(fd, clifd, remfd);
 	if (proc_result == 0){
-		tsocks[clifd] = tsock(clifd, remfd, sock_client);
+		setsockkeepalive(clifd);
+        tsocks[clifd] = tsock(clifd, remfd, sock_client);
 		tsocks[remfd] = tsock(remfd, clifd, sock_remote);
 		tsock* pArg = &tsocks[clifd];
 		// start a thread communite with client
