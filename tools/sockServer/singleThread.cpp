@@ -63,7 +63,7 @@ void* sock_message(void* pArg)
     int clifd = p->fd;
 	int remote = p->dstfd;
 	if (proc_sock(clifd, remote, encodekey) == 0){
-	    regxevent(clifd, xfilter_read, cb_proc_recv);
+        regxevent(clifd, xfilter_read, cb_proc_recv);
     	regxevent(remote, xfilter_read, cb_proc_recv);
     	LOG_R("connection [%d-%d] established", clifd, remote);
 	}
@@ -83,6 +83,7 @@ int cb_proc_accept(int fd, int filter)
     int clifd = -1, remfd = -1;
     int proc_result = proc_accept(fd, clifd, remfd);
     if (proc_result == 0){
+        setsockkeepalive(clifd);
         tsocks[clifd] = tsock(clifd, remfd, sock_client);
         tsocks[remfd] = tsock(remfd, clifd, sock_remote);
 		// start a thread communicate with client
