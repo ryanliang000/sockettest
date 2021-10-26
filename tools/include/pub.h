@@ -73,7 +73,7 @@ void setsockreuse(int fd) {
 void setsockkeepalive(int fd, int sec=600, int interval=30, int count=2){ 
   int opt=1;
   setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
-  setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &sec, sizeof(size));
+  setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &sec, sizeof(sec));
   setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
   setsockopt(fd, SOL_TCP, TCP_KEEPCNT, &count, sizeof(count));
 }
