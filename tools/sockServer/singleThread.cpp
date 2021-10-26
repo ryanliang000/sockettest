@@ -83,7 +83,7 @@ int cb_proc_accept(int fd, int filter)
     int clifd = -1, remfd = -1;
     int proc_result = proc_accept(fd, clifd, remfd);
     if (proc_result == 0){
-        setsockkeepalive(clifd);
+        //setsockkeepalive(clifd);
         tsocks[clifd] = tsock(clifd, remfd, sock_client);
         tsocks[remfd] = tsock(remfd, clifd, sock_remote);
 		// start a thread communicate with client
@@ -271,10 +271,9 @@ int main(int argc, char **argv)
 	encodebuffer(acceptSockBuffer, sizeof(acceptSockBuffer), encodekey);
 
     // set reuse addr and port
-	int opt=1;
-    setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    setsockopt(srvfd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
-    
+    setsockreuse(srvfd);
+    setsockkeepalive(srvfd);
+
 	// bind and listen
 	if (bind(srvfd, (const sockaddr*)&serv, sizeof(serv)) < 0)
     {
