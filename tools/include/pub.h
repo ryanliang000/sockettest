@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <netinet/tcp.h>
 void procperr(int signum) {
   if (signum == SIGPIPE)
     LOG_E("fatal error sigpipe, port error[%d-%s]", errno, strerror(errno));
@@ -67,3 +68,13 @@ void setsockreuse(int fd) {
   setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
   setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
 }
+
+
+void setsockkeepalive(int fd, int sec=600, int interval=30, int count=2){ 
+  int opt=1;
+  setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
+  setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &sec, sizeof(size));
+  setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+  setsockopt(fd, SOL_TCP, TCP_KEEPCNT, &count, sizeof(count));
+}
+
