@@ -36,9 +36,22 @@
  * provisions above, a recipient may use your version of this file under
  * either the BSD or the GPL.
  */
+#ifndef _LOG_H_202110_
+#define _LOG_H_202110_
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+static char* __gettime(){
+   static char buf[32] = {0};
+   time_t t = time(NULL);
+   struct tm* local = localtime(&t);
+   sprintf(buf, "%04d%02d%02d-%02d:%02d:%02d",
+        local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
+        local->tm_hour, local->tm_min, local->tm_sec);
+   return buf;
+}
 #define LOG(fd, title, ...)                                                    \
+  fprintf(fd, "%s", __gettime());                                              \
   fprintf(fd, title);                                                          \
   fprintf(fd, __VA_ARGS__);                                                    \
   fprintf(fd, " (%s:%d)\n", __FILE__, __LINE__);
@@ -61,4 +74,6 @@
 #define LOG_D(...) LOG(stdout, "[DBG]", __VA_ARGS__)
 #else
 #define LOG_D(...)
+#endif
+
 #endif
