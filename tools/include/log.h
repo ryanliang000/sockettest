@@ -51,7 +51,7 @@ static char* __gettime(){
    return buf;
 }
 #define LOG(fd, title, ...)                                                    \
-  fprintf(fd, "%s", __gettime());                                              \
+  fprintf(fd, "%s ", __gettime());                                              \
   fprintf(fd, title);                                                          \
   fprintf(fd, __VA_ARGS__);                                                    \
   fprintf(fd, " (%s:%d)\n", __FILE__, __LINE__);
