@@ -58,14 +58,17 @@ static char* __gettime(){
 
 #ifdef REL
 #define LOG_E(...) LOG(stderr, "[ERR]", __VA_ARGS__)
+#define LOG_W(...) 
 #define LOG_R(...)
 #define LOG_I(...)
 #elif defined RUN
 #define LOG_E(...) LOG(stderr, "[ERR]", __VA_ARGS__)
 #define LOG_R(...) LOG(stdout, "[RUN]", __VA_ARGS__)
+#define LOG_W(...) LOG(stdout, "[WARN]", __VA_ARGS__)
 #define LOG_I(...)
 #else
 #define LOG_E(...) LOG(stderr, "[ERR]", __VA_ARGS__)
+#define LOG_W(...) LOG(stdout, "[WARN]", __VA_ARGS__)
 #define LOG_R(...) LOG(stdout, "[RUN]", __VA_ARGS__)
 #define LOG_I(...) LOG(stdout, "[INF]", __VA_ARGS__)
 #endif
