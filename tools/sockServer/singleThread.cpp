@@ -188,7 +188,8 @@ int proc_sock(int clifd, int remote, int key)
 }
 int proc_sock2(int clifd, int remote, int key)
 {// recv 5,1..host,port reply 5,0,0,1,ip,port
-    tbuff& tbuf = tsocks[clifd].tbuf; 
+    tbuff& tbuf = tsocks[clifd].tbuf;
+    settimeout(clifd, 10);
 	if ((tbuf.recvn = recv(clifd, tbuf.buff, BUFFER_LENGTH, 0)) < 10){
         LOG_E("proc_sock2: receive from client failed, len:%d", tbuf.recvn);
         return -1;
@@ -210,7 +211,10 @@ int proc_sock2_buff(int clifd, int remote, int key)
 	if (buff[0] == 5 && buff[1] == 1 && buff[2] == 0){//second address send msg
        if (buff[3] == 3){
           unsigned char bytes = buff[4];
-          getsockaddrfromhost(buff+5, bytes, fserv);
+          if (!getsockaddrfromhost(buff+5, bytes, fserv)){
+            LOG_E("proc_sock_: host resolve failed");
+            return -1;
+          }
           memcpy(&fserv.sin_port, buff+5+bytes, 2);
        }
        else if (buff[3] == 1){
@@ -237,7 +241,7 @@ int proc_sock2_buff(int clifd, int remote, int key)
 	// connect to remote
     int ret = connect(remote, (sockaddr*)(&fserv), sizeof(fserv));
     if (ret != 0){
-        LOG_E("proc_sock2:fd[%d-%d] forward remote connect failed[%d-%s]", clifd, remote, errno, strerror(errno));
+        LOG_E("proc_sock_:fd[%d-%d] forward remote<%s> connect failed[%d-%s]", clifd, remote, std::string(inet_ntoa(fserv.sin_addr)).c_str(), errno, strerror(errno));
         return -1;
     }
     LOG_I("conn to remote succ");

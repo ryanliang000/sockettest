@@ -27,6 +27,25 @@ void encodebuffer(unsigned char *msg, int len, unsigned char key) {
 void encodebuffer(char *msg, int len, unsigned char key) {
   return encodebuffer((unsigned char *)msg, len, key);
 }
+#include "hostdb.h"
+bool getsockaddrfromhost(char *msg, unsigned char bytes, sockaddr_in &serv) {
+  try_init_db();
+  if (!query_host(msg, bytes, serv.sin_addr)){
+    struct hostent *host;
+    char hostname[256] = {0};
+    memcpy(hostname, msg, bytes);
+    hostname[bytes] = '\0';
+    if ((host = gethostbyname(hostname)) == NULL){
+      LOG_E("gethostbyname failed <%s>", std::string(msg, bytes).c_str());
+      return false;
+    }
+    memcpy(&serv.sin_addr.s_addr, host->h_addr, 4);
+    add_host(msg, bytes, serv.sin_addr);
+  }
+  LOG_T("msg: %s, host address: %s", std::string(msg, bytes).c_str(), std::string(inet_ntoa(serv.sin_addr)).c_str());
+  return true;
+}
+/*
 bool getsockaddrfromhost(char *msg, unsigned char bytes, sockaddr_in &serv) {
   struct hostent *host;
   char hostname[256];
@@ -39,6 +58,7 @@ bool getsockaddrfromhost(char *msg, unsigned char bytes, sockaddr_in &serv) {
   // printf("host address: %x\n", serv.sin_addr.s_addr);
   return true;
 }
+*/
 void setnonblock(int fd) {
   int flag = fcntl(fd, F_GETFL);
   fcntl(fd, F_SETFL, flag | O_NONBLOCK);
