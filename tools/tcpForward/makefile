@@ -1,8 +1,8 @@
 all : single.out single.dbg
 single.out : singleThread.cpp
-	gcc -DRUN -O2 -o single.out singleThread.cpp -I../include -lpthread
+	g++ -DRUN -O2 -o single.out singleThread.cpp -I../include -lpthread -lleveldb
 
 single.dbg : singleThread.cpp
-	gcc -DDBG -o $@ -I../include -lpthread $^ 
+	g++ -DDBG -o $@ -I../include -lpthread $^ -lleveldb
 clean : 
 	rm single.dbg single.out

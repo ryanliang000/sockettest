@@ -82,7 +82,7 @@ static char* __gettime(){
 #ifdef TMP
 #define LOG_T(...) LOG(stdout, "[TMP]", __VA_ARGS__)
 #else
-#define LOG_D(...)
+#define LOG_T(...)
 #endif
 
 #endif
