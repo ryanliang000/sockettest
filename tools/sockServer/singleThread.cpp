@@ -138,6 +138,7 @@ int cb_proc_recv(int fd, int filter)
         cb_proc_close(fd, filter);
     }
     else if (proc_result == 1){
+        LOG_I("pause read [%d->%d]", fd, dstfd);
         unregxevent(fd, xfilter_read);
         regxevent(dstfd, xfilter_write, cb_proc_send);
     }
@@ -147,12 +148,13 @@ int cb_proc_recv(int fd, int filter)
 int cb_proc_send(int fd, int filter)
 {
     LOG_I("proc send: %d", fd);
-    int proc_result = sendsock(tsocks[fd]);
     int dstfd = tsocks[fd].dstfd;
+    int proc_result = sendsock(tsocks[dstfd]);
     if (proc_result < 0){
         cb_proc_close(fd, filter);
     }
     else if (proc_result == 0){
+        LOG_I("restore read [%d->%d]", dstfd, fd);
         unregxevent(fd, xfilter_write);
         regxevent(dstfd, xfilter_read, cb_proc_recv);
     }
