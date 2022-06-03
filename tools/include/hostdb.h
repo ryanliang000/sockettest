@@ -7,8 +7,9 @@ bool try_init_db(){
   if (gs_host_db == nullptr){
      leveldb::Options opt;
      opt.create_if_missing = true;
-     if (!leveldb::DB::Open(opt, "./hostdb", &gs_host_db).ok()){
-        LOG_E("open hostdb failed!");
+     leveldb::Status st;
+     if (!(st=leveldb::DB::Open(opt, "./hostdb", &gs_host_db)).ok()){
+        LOG_E("open hostdb failed! %s", st.ToString().c_str());
         return false;
      }
      LOG_R("host db inited");

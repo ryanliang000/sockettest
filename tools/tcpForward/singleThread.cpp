@@ -168,7 +168,11 @@ int main(int argc, char **argv)
     }
     memset(&serv, 0, sizeof(serv));
     serv.sin_family = AF_INET;
+#ifdef LOCAL
+    serv.sin_addr.s_addr = inet_addr("127.0.0.1");
+#else
     serv.sin_addr.s_addr = htonl(INADDR_ANY);
+#endif
     serv.sin_port = htons(atoi(argv[3]));
     memset(&fserv, 0, sizeof(fserv));
     fserv.sin_family = AF_INET;

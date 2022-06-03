@@ -1,8 +1,9 @@
-all : single.out single.dbg
-single.out : singleThread.cpp
-	g++ -DRUN -O2 -o single.out singleThread.cpp -I../include -lpthread -lleveldb -std=c++11
+all : local.out single.out
+local.out : localThread.cpp
+	g++ -DRUN -DLOCAL -O2 -o $@ $^ -I../include -lpthread -lleveldb -std=c++11
 
-single.dbg : singleThread.cpp
-	g++ -DDBG -o $@ -I../include -lpthread $^ -lleveldb -std=c++11
+single.out : singleThread.cpp
+	g++ -DRUN -O2 -o $@ -I../include -lpthread $^ -lleveldb -std=c++11
+
 clean : 
-	rm single.dbg single.out
+	rm single.out local.out
