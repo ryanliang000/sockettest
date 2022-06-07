@@ -222,6 +222,7 @@ int proc_sock2_buff(int clifd, int remote, int key)
        else if (buff[3] == 1){
           memcpy(&fserv.sin_addr.s_addr, buff+4, 4);
           memcpy(&fserv.sin_port, buff+8, 2);
+          LOG_T("connect by ipaddr: %s", std::string(inet_ntoa(fserv.sin_addr)).c_str());
        }
     }
     else{
