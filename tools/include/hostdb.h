@@ -1,6 +1,38 @@
 #include "leveldb/db.h"
 #include "log.h"
 #include <arpa/inet.h>
+#include <string>
+#include <map>
+namespace leveldb{
+  class MemDB : public DB {
+  public:
+      MemDB(){};
+      virtual ~MemDB(){};
+      virtual Status Put(const WriteOptions& options, const Slice& key, const Slice& value) override{
+        map_[key.ToString()] = value.ToString();
+        return Status();
+      };
+      virtual Status Delete(const WriteOptions& options, const Slice& key) override{return Status();}
+      virtual Status Write(const WriteOptions& options, WriteBatch* updates) override{return Status();}
+      virtual Status Get(const ReadOptions& options, const Slice& key, std::string* value) override{
+        if (map_.find(key.ToString()) == map_.end()){
+          return Status::NotFound("not found");
+        }
+        *value = map_[key.ToString()];
+        return Status();
+      }
+      virtual Iterator* NewIterator(const ReadOptions& options) override{return nullptr;}
+      virtual const Snapshot* GetSnapshot() {return nullptr;}
+      virtual void ReleaseSnapshot(const Snapshot* snapshot){return;}
+      virtual bool GetProperty(const Slice& property, std::string* value) {return true;}
+      virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {return;}
+      virtual void CompactRange(const Slice* begin, const Slice* end) {return;}
+      virtual void SuspendCompactions(){return;}
+      virtual void ResumeCompactions(){return;}
+  private:
+      std::map<std::string, std::string> map_;   
+  };
+};
 leveldb::DB* gs_host_db = nullptr;
 const int gs_expire_time = 86400 * 3;
 bool try_init_db(){
@@ -9,14 +41,15 @@ bool try_init_db(){
      opt.create_if_missing = true;
      leveldb::Status st;
      if (!(st=leveldb::DB::Open(opt, "./hostdb", &gs_host_db)).ok()){
-        LOG_E("open hostdb failed! %s", st.ToString().c_str());
-        return false;
+        LOG_W("open hostdb failed! %s", st.ToString().c_str());
+        LOG_W("switch mem db mode");
+        gs_host_db = new leveldb::MemDB;
+        return true;
      }
      LOG_R("host db inited");
   }
   return true;
 }
-bool s_init_db = try_init_db();
 struct value_addr
 {
   struct in_addr addr;
@@ -27,6 +60,7 @@ struct value_addr
   }
 };
 bool query_host(const char* hostname, int len, struct in_addr& addr){
+  if (!gs_host_db) try_init_db();
   if (!gs_host_db || !hostname) return false;
   leveldb::Slice key(hostname, len);
   std::string value;
